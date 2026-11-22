@@ -249,13 +249,75 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     padding: 24px;
     margin-bottom: 28px;
 }
-.slide-mockup {
-    background: #141B2D;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+.deck-viewport {
+    background: #06090F;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.deck-stage {
+    width: 100%;
+    max-width: 920px;
+    min-height: 440px;
+    background: radial-gradient(circle at 80% 20%, #151E33 0%, #0D1322 100%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 12px;
-    padding: 36px 44px;
-    min-height: 240px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(99, 102, 241, 0.15);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 40px 48px;
+    position: relative;
+    overflow: hidden;
+}
+.deck-stage::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #6366F1, #38BDF8, #34D399);
+}
+.slide-top-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 14px;
+    margin-bottom: 24px;
+}
+.slide-category-tag {
+    font-size: 11px;
+    font-weight: 700;
+    color: #818CF8;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+.slide-aspect-tag {
+    font-size: 11px;
+    color: #475569;
+    font-weight: 600;
+}
+.slide-footer-meta {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: #475569;
+}
+.speaker-notes-box {
+    width: 100%;
+    max-width: 920px;
+    background: #0E131F;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-left: 3px solid #818CF8;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-top: 16px;
 }
 
 /* Streamlit Inputs Overrides */
@@ -529,47 +591,102 @@ with ch4:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SLIDE CAROUSEL PREVIEW (Interactive Deck Viewer)
+# SLIDE CAROUSEL PREVIEW (Interactive 16:9 Deck Viewer)
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">Presentation Deck Preview (5 Slides)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Presentation Deck Preview (16:9 Widescreen)</div>', unsafe_allow_html=True)
 
 if "slide_idx" not in st.session_state:
     st.session_state.slide_idx = 0
 
 slides = [
     {
-        "num": "01", "name": "Executive Cover", "icon": "🏷️",
-        "html": f'<div style="text-align:left;"><div style="font-size:12px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;">✦ AutoPilot Executive Report</div><h1 style="font-size:30px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;">{report_title}</h1><p style="font-size:14px;color:#94A3B8;margin:0;">Generated from {len(df):,} transactions · Confidential</p></div>'
+        "num": "01",
+        "name": "Executive Cover",
+        "icon": "🏷️",
+        "tag": "EXECUTIVE BRIEFING · SLIDE 01",
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:20px 0;"><div style="display:inline-block;padding:4px 12px;border-radius:20px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;font-size:11px;font-weight:700;letter-spacing:0.08em;margin-bottom:16px;width:fit-content;">✦ EXECUTIVE REPORT</div><h1 style="font-size:36px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;letter-spacing:-0.02em;line-height:1.2;">{report_title}</h1><p style="font-size:15px;color:#94A3B8;margin:0 0 24px 0;line-height:1.6;">Automated Full-Cycle Business Performance & Margin Analysis</p><div style="display:flex;gap:20px;font-size:12px;color:#64748B;"><span style="color:#A5B4FC;">● Certified Dataset</span><span>{len(df):,} Validated Transactions</span><span>Confidential · Boardroom Ready</span></div></div>''',
+        "notes": f"Welcome everyone. Today we are reviewing our executive performance report for {report_title}. We will walk through our high-level KPIs, seasonal trends, category margin health, and strategic growth priorities."
     },
     {
-        "num": "02", "name": "KPI Matrix", "icon": "📌",
-        "html": f'<div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:16px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;"><div style="font-size:10px;color:#64748B;font-weight:700;">REVENUE</div><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;"><div style="font-size:10px;color:#64748B;font-weight:700;">PROFIT</div><div style="font-size:22px;font-weight:800;color:#34D399;margin-top:6px;">{fmt(total_profit)}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;"><div style="font-size:10px;color:#64748B;font-weight:700;">MARGIN</div><div style="font-size:22px;font-weight:800;color:#C084FC;margin-top:6px;">{profit_margin:.1f}%</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;"><div style="font-size:10px;color:#64748B;font-weight:700;">ORDERS</div><div style="font-size:22px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div></div></div>'
+        "num": "02",
+        "name": "KPI Matrix",
+        "icon": "📌",
+        "tag": "FINANCIAL HIGHLIGHTS · SLIDE 02",
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">GROSS REVENUE</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">↑ {mom_avg:.1f}% Avg MoM</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">NET PROFIT</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{fmt(total_profit)}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">After All COGS</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">PROFIT MARGIN</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{profit_margin:.1f}%</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">Target >35% Met</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">ORDER VOLUME</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">AOV: {fmt(avg_order_val)}</div></div></div><div style="background:#0E131F;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: Gross revenue closed at {fmt(total_revenue)} with healthy margin retention at {profit_margin:.1f}%, indicating strong pricing power and controlled fulfillment costs.</div></div>''',
+        "notes": f"Slide 2 outlines our bottom-line numbers. Net profit reached {fmt(total_profit)} on {fmt(total_revenue)} of gross revenue. With an average order value of {fmt(avg_order_val)}, our 48% margins give us substantial headroom to invest in marketing."
     },
     {
-        "num": "03", "name": "Monthly Trajectory", "icon": "📈",
-        "html": f'<div><div style="font-size:14px;font-weight:700;color:#818CF8;margin-bottom:8px;">Monthly Trajectory & Volatility</div><p style="font-size:14px;color:#94A3B8;line-height:1.6;">Peak revenue recorded in <strong>{best_month}</strong>. Lowest performance observed in <strong>{worst_month}</strong>.<br>Average month-over-month growth held at <strong>+{mom_avg:.1f}%</strong> across the evaluation cycle.</p></div>'
+        "num": "03",
+        "name": "Monthly Trajectory",
+        "icon": "📈",
+        "tag": "MOMENTUM & SEASONALITY · SLIDE 03",
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Annual Trajectory & Peak Analysis</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;"><div style="font-size:11px;color:#38BDF8;font-weight:700;text-transform:uppercase;">🏆 Annual High-Water Mark</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{best_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Highest monthly revenue concentration. Driven by accelerated consumer demand and promotional alignment.</p></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;"><div style="font-size:11px;color:#F87171;font-weight:700;text-transform:uppercase;">⚠️ Seasonal Contraction Window</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{worst_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Softest period recorded. Represents our primary opportunity for strategic counter-cyclical campaigns.</p></div></div><div style="background:#0E131F;border-left:3px solid #38BDF8;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Executive Guidance: Ramp up supply chain readiness 45 days prior to {best_month} to avoid stock-outs.</div></div>''',
+        "notes": f"Looking at seasonality on slide 3: our peak performance hit in {best_month}. Conversely, {worst_month} showed our seasonal trough. We recommend timing next year's promotional budget to hedge this exact slow period."
     },
     {
-        "num": "04", "name": "Category Dominance", "icon": "🏆",
-        "html": f'<div><div style="font-size:14px;font-weight:700;color:#818CF8;margin-bottom:8px;">Category & Product Mix</div><p style="font-size:14px;color:#94A3B8;line-height:1.6;"><strong>{top_cat}</strong> accounts for the largest share of net income.<br>Rebalancing supply and promotions around high-margin SKUs is recommended for upcoming quarters.</p></div>'
+        "num": "04",
+        "name": "Category Dominance",
+        "icon": "🏆",
+        "tag": "PORTFOLIO MIX · SLIDE 04",
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Product Category & Margin Contribution</div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:16px;font-weight:800;color:#F8FAFC;">Top Category: {top_cat}</span><span style="font-size:12px;font-weight:700;color:#34D399;background:rgba(16,185,129,0.12);padding:4px 10px;border-radius:12px;">{profit_margin:.1f}% Avg Margin</span></div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.6;">{top_cat} accounts for the single largest revenue and profit contribution in our portfolio. Unit velocity is supported by high customer retention.</p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#0E131F;border-left:3px solid #C084FC;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Lead SKU Focus:</strong> Prioritize safety stock in top 5 product variants to meet consistent reorder volume.</div><div style="background:#0E131F;border-left:3px solid #FBBF24;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Margin Expansion:</strong> Explore bundle pricing to lift lower-velocity catalog items.</div></div></div>''',
+        "notes": f"On slide 4, {top_cat} is our clear anchor category. It produces the bulk of our gross margin. Our recommendation here is to double down on inventory depth for our top 5 SKUs while reviewing cost structures for trailing categories."
     },
     {
-        "num": "05", "name": "Strategic Recommendations", "icon": "📍",
-        "html": f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#0E131F;padding:14px;border-radius:8px;border-left:3px solid #6366F1;"><div style="font-size:11px;font-weight:700;color:#818CF8;">Market Focus</div><div style="font-size:13px;color:#94A3B8;margin-top:4px;">{top_region} is the primary revenue driver; expand distribution here.</div></div><div style="background:#0E131F;padding:14px;border-radius:8px;border-left:3px solid #34D399;"><div style="font-size:11px;font-weight:700;color:#34D399;">Seasonality Playbook</div><div style="font-size:13px;color:#94A3B8;margin-top:4px;">Schedule targeted promotions to mitigate the soft dip seen in {worst_month}.</div></div></div>'
+        "num": "05",
+        "name": "Strategic Recommendations",
+        "icon": "📍",
+        "tag": "ACTION PLAN · SLIDE 05",
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Strategic Priorities & Next Steps</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #6366F1;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;">1. Regional Scale</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Expand ad budget and distribution in <strong>{top_region}</strong>, our highest revenue region.</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #34D399;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#34D399;text-transform:uppercase;">2. Margin Defense</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Maintain our <strong>{profit_margin:.1f}%</strong> profit margin threshold by auditing supplier terms.</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #F87171;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#F87171;text-transform:uppercase;">3. Seasonality Bridge</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Deploy promotional incentives to elevate revenue during the <strong>{worst_month}</strong> dip.</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #FBBF24;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#FBBF24;text-transform:uppercase;">4. Basket Optimization</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Introduce SKU cross-sells to push average order value beyond <strong>{fmt(avg_order_val)}</strong>.</div></div></div></div>''',
+        "notes": f"Finally, slide 5 gives leadership four immediate action items: First, capture more market share in {top_region}; second, protect our 48% margins; third, launch campaigns to lift {worst_month}; and fourth, test bundle add-ons to increase our {fmt(avg_order_val)} average order value."
     },
 ]
 
-st.markdown('<div class="carousel-box">', unsafe_allow_html=True)
+# Slide tab selectors
 tab_cols = st.columns(len(slides))
 for i, s in enumerate(slides):
     with tab_cols[i]:
-        if st.button(f"{s['icon']} {s['name']}", key=f"s_{i}", use_container_width=True,
+        if st.button(f"{s['icon']} {s['num']} · {s['name']}", key=f"s_{i}", use_container_width=True,
                      type="primary" if i == st.session_state.slide_idx else "secondary"):
             st.session_state.slide_idx = i
             st.rerun()
 
 curr_s = slides[st.session_state.slide_idx]
-st.markdown(f'<div class="slide-mockup"><div style="font-size:10px;font-weight:700;color:#64748B;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:16px;">Slide {curr_s["num"]} / 05 · {curr_s["name"]}</div>{curr_s["html"]}</div></div>', unsafe_allow_html=True)
+
+# 16:9 Slide Canvas Mockup
+st.markdown(f'''
+<div class="deck-viewport">
+    <div class="deck-stage">
+        <div class="slide-top-meta">
+            <span class="slide-category-tag">{curr_s["tag"]}</span>
+            <span class="slide-aspect-tag">16:9 Widescreen Presentation</span>
+        </div>
+        {curr_s["html"]}
+        <div class="slide-footer-meta">
+            <span>Analytics AutoPilot · Slide {curr_s["num"]} of 05</span>
+            <span>{report_title} · Confidential</span>
+        </div>
+    </div>
+    <div class="speaker-notes-box">
+        <div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">
+            🎤 Recommended Speaker Script (What to say during your meeting):
+        </div>
+        <div style="font-size:13px;color:#CBD5E1;line-height:1.6;font-style:italic;">
+            "{curr_s["notes"]}"
+        </div>
+    </div>
+</div>
+''', unsafe_allow_html=True)
+
+# Slide Next/Prev controls
+c_prev, c_space, c_next = st.columns([1, 4, 1])
+with c_prev:
+    if st.button("◀ Previous Slide", use_container_width=True, disabled=(st.session_state.slide_idx == 0)):
+        st.session_state.slide_idx -= 1
+        st.rerun()
+with c_next:
+    if st.button("Next Slide ▶", use_container_width=True, disabled=(st.session_state.slide_idx == len(slides) - 1)):
+        st.session_state.slide_idx += 1
+        st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # EXECUTIVE TALKING POINTS
