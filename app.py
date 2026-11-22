@@ -504,9 +504,9 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HIGH-DENSITY PLOTLY CHARTS (Dark Neon Palette)
+# HIGH-DENSITY PLOTLY CHARTS (Dark Neon Palette + 1-Click Swappable Views)
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">Interactive Analytics Engine</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Interactive Analytics Engine · Customizable Visuals</div>', unsafe_allow_html=True)
 
 DARK_BG    = "#0E131F"
 GRID_COLOR = "rgba(255, 255, 255, 0.06)"
@@ -526,68 +526,188 @@ def style_chart(fig, title):
     fig.update_yaxes(showgrid=True, gridcolor=GRID_COLOR, linecolor=GRID_COLOR)
     return fig
 
+import plotly.express as px
+
 ch1, ch2 = st.columns(2)
 
 with ch1:
     st.markdown('<div class="chart-box">', unsafe_allow_html=True)
+    c1_head, c1_ctrl = st.columns([2, 1])
+    with c1_head:
+        st.markdown('<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Monthly Performance</div>', unsafe_allow_html=True)
+    with c1_ctrl:
+        trend_style = st.selectbox("Style", ["Grouped Bars", "Line & Area", "MoM Growth %"], key="ctrl_trend", label_visibility="collapsed")
+
     fig1 = go.Figure()
-    fig1.add_trace(go.Bar(
-        x=monthly["Month_Label"], y=monthly["Revenue"],
-        name="Revenue", marker_color="#6366F1", opacity=0.92
-    ))
-    fig1.add_trace(go.Bar(
-        x=monthly["Month_Label"], y=monthly["Profit"],
-        name="Profit", marker_color="#34D399", opacity=0.92
-    ))
-    fig1.update_layout(barmode="group")
-    fig1.update_yaxes(tickprefix="$", tickformat=",.0f")
-    st.plotly_chart(style_chart(fig1, "Monthly Revenue vs Net Profit"), use_container_width=True)
+    if trend_style == "Line & Area":
+        fig1.add_trace(go.Scatter(
+            x=monthly["Month_Label"], y=monthly["Revenue"],
+            mode="lines+markers", name="Revenue",
+            line=dict(color="#6366F1", width=3),
+            marker=dict(size=7, color="#6366F1"),
+            fill="tozeroy", fillcolor="rgba(99, 102, 241, 0.12)",
+        ))
+        fig1.add_trace(go.Scatter(
+            x=monthly["Month_Label"], y=monthly["Profit"],
+            mode="lines+markers", name="Profit",
+            line=dict(color="#34D399", width=2.5),
+            marker=dict(size=6, color="#34D399"),
+        ))
+        fig1.update_yaxes(tickprefix="$", tickformat=",.0f")
+        st.plotly_chart(style_chart(fig1, "Revenue & Profit Trajectory (Line)"), use_container_width=True)
+    elif trend_style == "MoM Growth %":
+        growth_colors = ["#34D399" if v >= 0 else "#F87171" for v in monthly["MoM_Growth"].fillna(0)]
+        fig1.add_trace(go.Bar(
+            x=monthly["Month_Label"], y=monthly["MoM_Growth"],
+            marker_color=growth_colors,
+            text=[f"{v:+.1f}%" if not pd.isna(v) else "0.0%" for v in monthly["MoM_Growth"]],
+            textposition="outside", textfont=dict(color=TEXT_COLOR, size=10),
+        ))
+        fig1.update_yaxes(ticksuffix="%")
+        st.plotly_chart(style_chart(fig1, "Month-over-Month Velocity (%)"), use_container_width=True)
+    else:
+        fig1.add_trace(go.Bar(
+            x=monthly["Month_Label"], y=monthly["Revenue"],
+            name="Revenue", marker_color="#6366F1", opacity=0.92
+        ))
+        fig1.add_trace(go.Bar(
+            x=monthly["Month_Label"], y=monthly["Profit"],
+            name="Profit", marker_color="#34D399", opacity=0.92
+        ))
+        fig1.update_layout(barmode="group")
+        fig1.update_yaxes(tickprefix="$", tickformat=",.0f")
+        st.plotly_chart(style_chart(fig1, "Monthly Revenue vs Net Profit"), use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with ch2:
     st.markdown('<div class="chart-box">', unsafe_allow_html=True)
-    fig2 = go.Figure(go.Bar(
-        x=category["Revenue"], y=category[cat_col], orientation="h",
-        marker_color=PALETTE[:len(category)],
-        text=[f"${v:,.0f}  ({m:.1f}%)" for v, m in zip(category["Revenue"], category["Margin_%"])],
-        textposition="outside", textfont=dict(color=TEXT_COLOR, size=11),
-    ))
-    fig2.update_xaxes(tickprefix="$", tickformat=",.0f")
-    fig2.update_yaxes(autorange="reversed")
-    st.plotly_chart(style_chart(fig2, f"Revenue & Margin by {cat_col}"), use_container_width=True)
+    c2_head, c2_ctrl = st.columns([2, 1])
+    with c2_head:
+        st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Category Portfolio</div>', unsafe_allow_html=True)
+    with c2_ctrl:
+        cat_style = st.selectbox("Style", ["Horizontal Bar", "Treemap", "Donut"], key="ctrl_cat", label_visibility="collapsed")
+
+    if cat_style == "Treemap":
+        fig2 = px.treemap(
+            category, path=[cat_col], values="Revenue",
+            color="Margin_%", color_continuous_scale=["#6366F1", "#38BDF8", "#34D399"],
+            title=f"Category Volume & Margin Matrix"
+        )
+        fig2.update_layout(
+            paper_bgcolor=DARK_BG, plot_bgcolor=DARK_BG,
+            font=dict(family="Plus Jakarta Sans", color=TEXT_COLOR),
+            margin=dict(l=20, r=20, t=50, b=20),
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+    elif cat_style == "Donut":
+        fig2 = go.Figure(go.Pie(
+            labels=category[cat_col], values=category["Revenue"],
+            hole=0.5, marker=dict(colors=PALETTE[:len(category)], line=dict(color=DARK_BG, width=2)),
+            textinfo="label+percent", textfont=dict(color="#F8FAFC", size=10),
+        ))
+        fig2.update_layout(
+            paper_bgcolor=DARK_BG,
+            title=dict(text=f"Revenue Share by {cat_col}", font=dict(size=14, color="#F8FAFC"), x=0.03),
+            margin=dict(l=20, r=20, t=50, b=20),
+            legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT_COLOR)),
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+    else:
+        fig2 = go.Figure(go.Bar(
+            x=category["Revenue"], y=category[cat_col], orientation="h",
+            marker_color=PALETTE[:len(category)],
+            text=[f"${v:,.0f}  ({m:.1f}%)" for v, m in zip(category["Revenue"], category["Margin_%"])],
+            textposition="outside", textfont=dict(color=TEXT_COLOR, size=11),
+        ))
+        fig2.update_xaxes(tickprefix="$", tickformat=",.0f")
+        fig2.update_yaxes(autorange="reversed")
+        st.plotly_chart(style_chart(fig2, f"Revenue & Margin by {cat_col}"), use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 ch3, ch4 = st.columns(2)
 
 with ch3:
     st.markdown('<div class="chart-box">', unsafe_allow_html=True)
-    fig3 = go.Figure(go.Pie(
-        labels=region_df[region_col], values=region_df["Revenue"],
-        hole=0.55,
-        marker=dict(colors=PALETTE[:len(region_df)], line=dict(color=DARK_BG, width=2)),
-        textinfo="label+percent", textfont=dict(color="#F8FAFC", size=11),
-    ))
-    fig3.update_layout(
-        paper_bgcolor=DARK_BG,
-        title=dict(text=f"Market Distribution by {region_col}", font=dict(size=14, color="#F8FAFC"), x=0.03),
-        margin=dict(l=20, r=20, t=54, b=20),
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT_COLOR)),
-    )
-    st.plotly_chart(fig3, use_container_width=True)
+    c3_head, c3_ctrl = st.columns([2, 1])
+    with c3_head:
+        st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Regional Distribution</div>', unsafe_allow_html=True)
+    with c3_ctrl:
+        region_style = st.selectbox("Style", ["Donut", "Vertical Bar", "Pie Chart"], key="ctrl_region", label_visibility="collapsed")
+
+    if region_style == "Vertical Bar":
+        fig3 = go.Figure(go.Bar(
+            x=region_df[region_col], y=region_df["Revenue"],
+            marker_color=PALETTE[:len(region_df)],
+            text=[f"${v:,.0f}" for v in region_df["Revenue"]],
+            textposition="outside", textfont=dict(color=TEXT_COLOR, size=10),
+        ))
+        fig3.update_yaxes(tickprefix="$", tickformat=",.0f")
+        st.plotly_chart(style_chart(fig3, f"Revenue by {region_col}"), use_container_width=True)
+    elif region_style == "Pie Chart":
+        fig3 = go.Figure(go.Pie(
+            labels=region_df[region_col], values=region_df["Revenue"],
+            marker=dict(colors=PALETTE[:len(region_df)], line=dict(color=DARK_BG, width=2)),
+            textinfo="label+percent", textfont=dict(color="#F8FAFC", size=11),
+        ))
+        fig3.update_layout(
+            paper_bgcolor=DARK_BG,
+            title=dict(text=f"Market Share by {region_col}", font=dict(size=14, color="#F8FAFC"), x=0.03),
+            margin=dict(l=20, r=20, t=54, b=20),
+            legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT_COLOR)),
+        )
+        st.plotly_chart(fig3, use_container_width=True)
+    else:
+        fig3 = go.Figure(go.Pie(
+            labels=region_df[region_col], values=region_df["Revenue"],
+            hole=0.55,
+            marker=dict(colors=PALETTE[:len(region_df)], line=dict(color=DARK_BG, width=2)),
+            textinfo="label+percent", textfont=dict(color="#F8FAFC", size=11),
+        ))
+        fig3.update_layout(
+            paper_bgcolor=DARK_BG,
+            title=dict(text=f"Market Distribution by {region_col}", font=dict(size=14, color="#F8FAFC"), x=0.03),
+            margin=dict(l=20, r=20, t=54, b=20),
+            legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT_COLOR)),
+        )
+        st.plotly_chart(fig3, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with ch4:
     st.markdown('<div class="chart-box">', unsafe_allow_html=True)
-    fig4 = go.Figure()
-    fig4.add_trace(go.Scatter(
-        x=monthly["Month_Label"], y=monthly["Revenue"],
-        mode="lines+markers", name="Trend",
-        line=dict(color="#38BDF8", width=3),
-        marker=dict(size=7, color="#38BDF8"),
-        fill="tozeroy", fillcolor="rgba(56, 189, 248, 0.08)",
+    c4_head, c4_c1, c4_c2 = st.columns([2, 1, 1])
+    with c4_head:
+        st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Product Leaderboard</div>', unsafe_allow_html=True)
+    with c4_c1:
+        top_metric = st.selectbox("Metric", ["Revenue", "Profit", "Quantity"], key="ctrl_metric", label_visibility="collapsed")
+    with c4_c2:
+        top_n = st.selectbox("Count", [5, 10], key="ctrl_count", label_visibility="collapsed")
+
+    # Aggregate dynamically
+    prod_col_name = "Product" if "Product" in df.columns else cat_col
+    agg_dict = {revenue_col: "sum", profit_col: "sum"}
+    if "Quantity" in df.columns:
+        agg_dict["Quantity"] = "sum"
+
+    prod_rank = df.groupby(prod_col_name).agg(**{
+        "Revenue": (revenue_col, "sum"),
+        "Profit": (profit_col, "sum"),
+        "Quantity": ("Quantity", "sum") if "Quantity" in df.columns else (revenue_col, "count")
+    }).reset_index().rename(columns={prod_col_name: "Product"})
+
+    prod_rank = prod_rank.sort_values(top_metric, ascending=False).head(top_n)
+
+    is_curr = top_metric in ["Revenue", "Profit"]
+    fig4 = go.Figure(go.Bar(
+        x=prod_rank["Product"], y=prod_rank[top_metric],
+        marker_color=PALETTE[:len(prod_rank)],
+        text=[f"${v:,.0f}" if is_curr else f"{int(v):,} units" for v in prod_rank[top_metric]],
+        textposition="outside", textfont=dict(color=TEXT_COLOR, size=10),
     ))
-    fig4.update_yaxes(tickprefix="$", tickformat=",.0f")
-    st.plotly_chart(style_chart(fig4, "Revenue Velocity Curve (2024)"), use_container_width=True)
+    if is_curr:
+        fig4.update_yaxes(tickprefix="$", tickformat=",.0f")
+    else:
+        fig4.update_yaxes(tickformat=",.0f")
+    st.plotly_chart(style_chart(fig4, f"Top {top_n} Products by {top_metric}"), use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -723,13 +843,13 @@ st.markdown('<div class="section-title">One-Click Slide Deck Export</div>', unsa
 
 with st.spinner("Compiling PowerPoint deck..."):
     monthly_export = monthly.copy()
-    if "Product" in df.columns and "Quantity" in df.columns:
-        top_products = (df.groupby("Product")
-                          .agg(Revenue=(revenue_col,"sum"), Quantity=("Quantity","sum"))
-                          .reset_index().sort_values("Revenue", ascending=False).head(5))
-    else:
-        top_products = category.rename(columns={cat_col:"Product"}).head(5)
-        top_products["Quantity"] = 0
+    
+    prod_col_name = "Product" if "Product" in df.columns else cat_col
+    top_products_df = df.groupby(prod_col_name).agg(**{
+        "Revenue": (revenue_col, "sum"),
+        "Profit": (profit_col, "sum"),
+        "Quantity": ("Quantity", "sum") if "Quantity" in df.columns else (revenue_col, "count")
+    }).reset_index().rename(columns={prod_col_name: "Product"}).sort_values(top_metric, ascending=False).head(top_n)
 
     report_data = {
         "kpis": {
@@ -745,7 +865,7 @@ with st.spinner("Compiling PowerPoint deck..."):
         "monthly":      monthly_export,
         "category":     category,
         "region":       region_df.rename(columns={region_col:"Region"}),
-        "top_products": top_products,
+        "top_products": top_products_df,
         "channels":     pd.DataFrame({"Channel":["N/A"],"Revenue":[0],"Orders":[0],"Revenue_%":[100]}),
         "insights": {
             "best_month": best_month, "worst_month": worst_month,
@@ -757,7 +877,13 @@ with st.spinner("Compiling PowerPoint deck..."):
     os.makedirs(os.path.join(os.path.dirname(__file__), "output"), exist_ok=True)
     from chart_engine   import generate_all_charts
     from slide_builder  import build_presentation
-    chart_paths = generate_all_charts(report_data)
+    chart_config = {
+        "trend_type":  trend_style,
+        "cat_type":    cat_style,
+        "region_type": region_style,
+        "top_metric":  top_metric,
+    }
+    chart_paths = generate_all_charts(report_data, config=chart_config)
     pptx_path   = build_presentation(report_data, chart_paths)
 
     with open(pptx_path, "rb") as f:

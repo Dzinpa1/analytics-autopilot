@@ -1,8 +1,7 @@
 """
 chart_engine.py
-Generates 4 publication-quality charts using Plotly (pure Python wheels,
-works on Python 3.15). Exports PNG via kaleido if available, otherwise
-falls back to saving interactive HTML previews.
+Generates 4 publication-quality charts using Plotly.
+Supports custom chart types (swappable by user) and exports PNG via kaleido.
 """
 
 import os
@@ -55,92 +54,173 @@ def _layout(fig, title: str):
     return fig
 
 
-# ── Chart 1: Monthly Revenue & Profit (grouped bar) ───────────────────────────
-def chart_monthly_trend(monthly: pd.DataFrame) -> str:
+# ── Chart 1: Monthly Trend ────────────────────────────────────────────────────
+def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars") -> str:
     go, px = _try_import_plotly()
     fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=monthly["Month_Label"], y=monthly["Revenue"],
-        name="Revenue", marker_color=PRIMARY, opacity=0.9,
-        text=[f"${v:,.0f}" for v in monthly["Revenue"]],
-        textposition="outside", textfont=dict(size=9),
-    ))
-    fig.add_trace(go.Bar(
-        x=monthly["Month_Label"], y=monthly["Profit"],
-        name="Profit", marker_color=ACCENT, opacity=0.9,
-    ))
-    fig.update_layout(barmode="group")
-    _layout(fig, "Monthly Revenue & Profit (2024)")
-    fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+
+    if chart_type == "Line & Area":
+        fig.add_trace(go.Scatter(
+            x=monthly["Month_Label"], y=monthly["Revenue"],
+            mode="lines+markers", name="Revenue",
+            line=dict(color=PRIMARY, width=3),
+            marker=dict(size=7, color=PRIMARY),
+            fill="tozeroy", fillcolor="rgba(37,99,235,0.08)",
+        ))
+        fig.add_trace(go.Scatter(
+            x=monthly["Month_Label"], y=monthly["Profit"],
+            mode="lines+markers", name="Profit",
+            line=dict(color=ACCENT, width=3),
+            marker=dict(size=7, color=ACCENT),
+        ))
+        _layout(fig, "Monthly Revenue & Profit Trajectory")
+        fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+
+    elif chart_type == "MoM Growth %":
+        colors = [ACCENT if v >= 0 else DANGER for v in monthly["MoM_Growth"].fillna(0)]
+        fig.add_trace(go.Bar(
+            x=monthly["Month_Label"], y=monthly["MoM_Growth"],
+            marker_color=colors,
+            text=[f"{v:+.1f}%" if not pd.isna(v) else "0.0%" for v in monthly["MoM_Growth"]],
+            textposition="outside",
+        ))
+        _layout(fig, "Month-over-Month Revenue Growth (%)")
+        fig.update_yaxes(ticksuffix="%")
+
+    else:  # Default: Grouped Bars
+        fig.add_trace(go.Bar(
+            x=monthly["Month_Label"], y=monthly["Revenue"],
+            name="Revenue", marker_color=PRIMARY, opacity=0.9,
+            text=[f"${v:,.0f}" for v in monthly["Revenue"]],
+            textposition="outside", textfont=dict(size=9),
+        ))
+        fig.add_trace(go.Bar(
+            x=monthly["Month_Label"], y=monthly["Profit"],
+            name="Profit", marker_color=ACCENT, opacity=0.9,
+        ))
+        fig.update_layout(barmode="group")
+        _layout(fig, "Monthly Revenue & Profit (2024)")
+        fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+
     return _save_fig(fig, "chart_monthly_trend.png")
 
 
-# ── Chart 2: Revenue by Category (horizontal bar) ─────────────────────────────
-def chart_category(category: pd.DataFrame) -> str:
+# ── Chart 2: Category Breakdown ───────────────────────────────────────────────
+def chart_category(category: pd.DataFrame, chart_type: str = "Horizontal Bar") -> str:
     go, px = _try_import_plotly()
-    fig = go.Figure(go.Bar(
-        x=category["Revenue"],
-        y=category["Category"],
-        orientation="h",
-        marker_color=PALETTE[:len(category)],
-        text=[f"${v:,.0f}  ({m:.1f}% margin)"
-              for v, m in zip(category["Revenue"], category["Margin_%"])],
-        textposition="outside",
-        textfont=dict(size=10),
-    ))
-    _layout(fig, "Revenue by Category (with Profit Margin %)")
-    fig.update_xaxes(tickprefix="$", tickformat=",.0f")
-    fig.update_yaxes(autorange="reversed")
+
+    if chart_type == "Treemap":
+        fig = px.treemap(
+            category, path=["Category"], values="Revenue",
+            color="Margin_%", color_continuous_scale="Viridis",
+            title="Category Revenue Distribution & Margin %"
+        )
+        fig.update_layout(paper_bgcolor=BG, margin=dict(l=40, r=40, t=60, b=40))
+
+    elif chart_type == "Donut":
+        fig = go.Figure(go.Pie(
+            labels=category["Category"], values=category["Revenue"],
+            hole=0.45, marker=dict(colors=PALETTE[:len(category)], line=dict(color="white", width=2)),
+            textinfo="label+percent", textfont=dict(size=11),
+        ))
+        fig.update_layout(
+            title=dict(text="Revenue Share by Category", font=dict(size=18, color=TEXT), x=0.04),
+            paper_bgcolor=BG, margin=dict(l=40, r=40, t=70, b=40),
+            showlegend=True,
+        )
+
+    else:  # Default: Horizontal Bar
+        fig = go.Figure(go.Bar(
+            x=category["Revenue"], y=category["Category"], orientation="h",
+            marker_color=PALETTE[:len(category)],
+            text=[f"${v:,.0f}  ({m:.1f}% margin)" for v, m in zip(category["Revenue"], category["Margin_%"])],
+            textposition="outside", textfont=dict(size=10),
+        ))
+        _layout(fig, "Revenue by Category (with Profit Margin %)")
+        fig.update_xaxes(tickprefix="$", tickformat=",.0f")
+        fig.update_yaxes(autorange="reversed")
+
     return _save_fig(fig, "chart_category.png")
 
 
-# ── Chart 3: Revenue by Region (donut) ────────────────────────────────────────
-def chart_region(region: pd.DataFrame) -> str:
+# ── Chart 3: Regional Distribution ────────────────────────────────────────────
+def chart_region(region: pd.DataFrame, chart_type: str = "Donut") -> str:
     go, px = _try_import_plotly()
-    fig = go.Figure(go.Pie(
-        labels=region["Region"],
-        values=region["Revenue"],
-        hole=0.45,
-        marker=dict(colors=PALETTE[:len(region)],
-                    line=dict(color="white", width=2)),
-        textinfo="label+percent",
-        textfont=dict(size=12),
-    ))
-    fig.update_layout(
-        title=dict(text="Revenue Share by Region", font=dict(size=18, color=TEXT), x=0.04),
-        paper_bgcolor=BG,
-        font=dict(family="Arial, sans-serif", color=TEXT),
-        margin=dict(l=40, r=40, t=70, b=40),
-        legend=dict(bgcolor="rgba(0,0,0,0)"),
-        showlegend=True,
-    )
+
+    if chart_type == "Vertical Bar":
+        fig = go.Figure(go.Bar(
+            x=region["Region"], y=region["Revenue"],
+            marker_color=PALETTE[:len(region)],
+            text=[f"${v:,.0f}" for v in region["Revenue"]],
+            textposition="outside",
+        ))
+        _layout(fig, "Revenue by Region")
+        fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+
+    elif chart_type == "Pie Chart":
+        fig = go.Figure(go.Pie(
+            labels=region["Region"], values=region["Revenue"],
+            marker=dict(colors=PALETTE[:len(region)], line=dict(color="white", width=2)),
+            textinfo="label+percent", textfont=dict(size=12),
+        ))
+        fig.update_layout(
+            title=dict(text="Regional Revenue Share", font=dict(size=18, color=TEXT), x=0.04),
+            paper_bgcolor=BG, margin=dict(l=40, r=40, t=70, b=40),
+        )
+
+    else:  # Default: Donut
+        fig = go.Figure(go.Pie(
+            labels=region["Region"], values=region["Revenue"],
+            hole=0.45, marker=dict(colors=PALETTE[:len(region)], line=dict(color="white", width=2)),
+            textinfo="label+percent", textfont=dict(size=12),
+        ))
+        fig.update_layout(
+            title=dict(text="Revenue Share by Region", font=dict(size=18, color=TEXT), x=0.04),
+            paper_bgcolor=BG, font=dict(family="Arial, sans-serif", color=TEXT),
+            margin=dict(l=40, r=40, t=70, b=40), showlegend=True,
+        )
+
     return _save_fig(fig, "chart_region.png")
 
 
-# ── Chart 4: Top 5 Products (vertical bar) ────────────────────────────────────
-def chart_top_products(top_products: pd.DataFrame) -> str:
+# ── Chart 4: Top Products ─────────────────────────────────────────────────────
+def chart_top_products(top_products: pd.DataFrame, metric: str = "Revenue") -> str:
     go, px = _try_import_plotly()
+
+    val_col = metric if metric in top_products.columns else "Revenue"
+    is_curr = val_col in ["Revenue", "Profit"]
+
     fig = go.Figure(go.Bar(
         x=top_products["Product"],
-        y=top_products["Revenue"],
+        y=top_products[val_col],
         marker_color=PALETTE[:len(top_products)],
-        text=[f"${v:,.0f}<br>{q:,} units"
-              for v, q in zip(top_products["Revenue"], top_products["Quantity"])],
-        textposition="outside",
-        textfont=dict(size=10),
+        text=[f"${v:,.0f}" if is_curr else f"{v:,} units" for v in top_products[val_col]],
+        textposition="outside", textfont=dict(size=10),
     ))
-    _layout(fig, "Top 5 Products by Revenue")
-    fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+    _layout(fig, f"Top Products by {val_col}")
+    if is_curr:
+        fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+    else:
+        fig.update_yaxes(tickformat=",.0f")
+
     return _save_fig(fig, "chart_top_products.png")
 
 
-def generate_all_charts(report_data: dict) -> dict:
-    print("\n📊  Generating charts...")
+def generate_all_charts(report_data: dict, config: dict = None) -> dict:
+    if config is None:
+        config = {}
+
+    trend_type  = config.get("trend_type", "Grouped Bars")
+    cat_type    = config.get("cat_type", "Horizontal Bar")
+    region_type = config.get("region_type", "Donut")
+    top_metric  = config.get("top_metric", "Revenue")
+
+    print("\n📊  Generating charts with configuration:", config)
     paths = {
-        "monthly_trend": chart_monthly_trend(report_data["monthly"]),
-        "category":      chart_category(report_data["category"]),
-        "region":        chart_region(report_data["region"]),
-        "top_products":  chart_top_products(report_data["top_products"]),
+        "monthly_trend": chart_monthly_trend(report_data["monthly"], chart_type=trend_type),
+        "category":      chart_category(report_data["category"], chart_type=cat_type),
+        "region":        chart_region(report_data["region"], chart_type=region_type),
+        "top_products":  chart_top_products(report_data["top_products"], metric=top_metric),
     }
     print("  All charts saved to /output\n")
     return paths
@@ -151,4 +231,3 @@ if __name__ == "__main__":
     path   = os.path.join(os.path.dirname(__file__), "sales_data.csv")
     report = build_report(path)
     generate_all_charts(report)
-
