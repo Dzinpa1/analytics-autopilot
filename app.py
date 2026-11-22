@@ -531,7 +531,7 @@ with ch4:
 # ─────────────────────────────────────────────────────────────────────────────
 # SLIDE CAROUSEL PREVIEW (Interactive Deck Viewer)
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">Presentation Deck Preview</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Presentation Deck Preview (5 Slides)</div>', unsafe_allow_html=True)
 
 if "slide_idx" not in st.session_state:
     st.session_state.slide_idx = 0
@@ -539,75 +539,23 @@ if "slide_idx" not in st.session_state:
 slides = [
     {
         "num": "01", "name": "Executive Cover", "icon": "🏷️",
-        "html": f"""
-        <div style="text-align:left;">
-            <div style="font-size:12px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;">✦ AutoPilot Executive Report</div>
-            <h1 style="font-size:32px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;">{report_title}</h1>
-            <p style="font-size:14px;color:#94A3B8;margin:0;">Generated from {len(df):,} transactions · Confidential</p>
-        </div>
-        """
+        "html": f'<div style="text-align:left;"><div style="font-size:12px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;">✦ AutoPilot Executive Report</div><h1 style="font-size:30px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;">{report_title}</h1><p style="font-size:14px;color:#94A3B8;margin:0;">Generated from {len(df):,} transactions · Confidential</p></div>'
     },
     {
         "num": "02", "name": "KPI Matrix", "icon": "📌",
-        "html": f"""
-        <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:16px;">
-            <div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;">
-                <div style="font-size:10px;color:#64748B;font-weight:700;">REVENUE</div>
-                <div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div>
-            </div>
-            <div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;">
-                <div style="font-size:10px;color:#64748B;font-weight:700;">PROFIT</div>
-                <div style="font-size:22px;font-weight:800;color:#34D399;margin-top:6px;">{fmt(total_profit)}</div>
-            </div>
-            <div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;">
-                <div style="font-size:10px;color:#64748B;font-weight:700;">MARGIN</div>
-                <div style="font-size:22px;font-weight:800;color:#C084FC;margin-top:6px;">{profit_margin:.1f}%</div>
-            </div>
-            <div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;">
-                <div style="font-size:10px;color:#64748B;font-weight:700;">ORDERS</div>
-                <div style="font-size:22px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div>
-            </div>
-        </div>
-        """
+        "html": f'<div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:16px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;"><div style="font-size:10px;color:#64748B;font-weight:700;">REVENUE</div><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;"><div style="font-size:10px;color:#64748B;font-weight:700;">PROFIT</div><div style="font-size:22px;font-weight:800;color:#34D399;margin-top:6px;">{fmt(total_profit)}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;"><div style="font-size:10px;color:#64748B;font-weight:700;">MARGIN</div><div style="font-size:22px;font-weight:800;color:#C084FC;margin-top:6px;">{profit_margin:.1f}%</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;"><div style="font-size:10px;color:#64748B;font-weight:700;">ORDERS</div><div style="font-size:22px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div></div></div>'
     },
     {
         "num": "03", "name": "Monthly Trajectory", "icon": "📈",
-        "html": f"""
-        <div>
-            <div style="font-size:13px;font-weight:700;color:#818CF8;margin-bottom:8px;">Monthly Trajectory & Volatility</div>
-            <p style="font-size:14px;color:#94A3B8;line-height:1.6;">
-                Peak revenue recorded in <strong>{best_month}</strong>. Lowest performance observed in <strong>{worst_month}</strong>.
-                Average month-over-month growth held at <strong>+{mom_avg:.1f}%</strong> across the evaluation cycle.
-            </p>
-        </div>
-        """
+        "html": f'<div><div style="font-size:14px;font-weight:700;color:#818CF8;margin-bottom:8px;">Monthly Trajectory & Volatility</div><p style="font-size:14px;color:#94A3B8;line-height:1.6;">Peak revenue recorded in <strong>{best_month}</strong>. Lowest performance observed in <strong>{worst_month}</strong>.<br>Average month-over-month growth held at <strong>+{mom_avg:.1f}%</strong> across the evaluation cycle.</p></div>'
     },
     {
         "num": "04", "name": "Category Dominance", "icon": "🏆",
-        "html": f"""
-        <div>
-            <div style="font-size:13px;font-weight:700;color:#818CF8;margin-bottom:8px;">Category & Product Mix</div>
-            <p style="font-size:14px;color:#94A3B8;line-height:1.6;">
-                <strong>{top_cat}</strong> accounts for the largest share of net income.
-                Rebalancing supply and promotions around high-margin SKUs is recommended for upcoming quarters.
-            </p>
-        </div>
-        """
+        "html": f'<div><div style="font-size:14px;font-weight:700;color:#818CF8;margin-bottom:8px;">Category & Product Mix</div><p style="font-size:14px;color:#94A3B8;line-height:1.6;"><strong>{top_cat}</strong> accounts for the largest share of net income.<br>Rebalancing supply and promotions around high-margin SKUs is recommended for upcoming quarters.</p></div>'
     },
     {
         "num": "05", "name": "Strategic Recommendations", "icon": "📍",
-        "html": f"""
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-            <div style="background:#0E131F;padding:14px;border-radius:8px;border-left:3px solid #6366F1;">
-                <div style="font-size:11px;font-weight:700;color:#818CF8;">Market Focus</div>
-                <div style="font-size:13px;color:#94A3B8;margin-top:4px;">{top_region} is the primary revenue driver; expand distribution here.</div>
-            </div>
-            <div style="background:#0E131F;padding:14px;border-radius:8px;border-left:3px solid #34D399;">
-                <div style="font-size:11px;font-weight:700;color:#34D399;">Seasonality Playbook</div>
-                <div style="font-size:13px;color:#94A3B8;margin-top:4px;">Schedule targeted promotions to mitigate the soft dip seen in {worst_month}.</div>
-            </div>
-        </div>
-        """
+        "html": f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#0E131F;padding:14px;border-radius:8px;border-left:3px solid #6366F1;"><div style="font-size:11px;font-weight:700;color:#818CF8;">Market Focus</div><div style="font-size:13px;color:#94A3B8;margin-top:4px;">{top_region} is the primary revenue driver; expand distribution here.</div></div><div style="background:#0E131F;padding:14px;border-radius:8px;border-left:3px solid #34D399;"><div style="font-size:11px;font-weight:700;color:#34D399;">Seasonality Playbook</div><div style="font-size:13px;color:#94A3B8;margin-top:4px;">Schedule targeted promotions to mitigate the soft dip seen in {worst_month}.</div></div></div>'
     },
 ]
 
@@ -621,15 +569,7 @@ for i, s in enumerate(slides):
             st.rerun()
 
 curr_s = slides[st.session_state.slide_idx]
-st.markdown(f"""
-<div class="slide-mockup">
-    <div style="font-size:10px;font-weight:700;color:#64748B;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:16px;">
-        Slide {curr_s['num']} / 05 · {curr_s['name']}
-    </div>
-    {curr_s['html']}
-</div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(f'<div class="slide-mockup"><div style="font-size:10px;font-weight:700;color:#64748B;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:16px;">Slide {curr_s["num"]} / 05 · {curr_s["name"]}</div>{curr_s["html"]}</div></div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # EXECUTIVE TALKING POINTS
