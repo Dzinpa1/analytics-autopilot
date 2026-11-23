@@ -503,6 +503,9 @@ with st.expander("🎨 Brand Kit & White-Labeling (Optional)", expanded=False):
 # ─────────────────────────────────────────────────────────────────────────────
 # COMPUTE METRICS VIA ANALYSIS ENGINE (Single Source of Truth)
 # ─────────────────────────────────────────────────────────────────────────────
+import importlib
+import analysis_engine
+importlib.reload(analysis_engine)
 from analysis_engine import build_report_from_df
 
 col_mapping = {
