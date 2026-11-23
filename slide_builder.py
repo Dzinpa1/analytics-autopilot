@@ -190,7 +190,7 @@ def slide_region_recommendations(prs, chart_region, insights):
 
 
 # ── Master builder ─────────────────────────────────────────────────────────────
-def build_presentation(report_data: dict, chart_paths: dict) -> str:
+def build_presentation(report_data: dict, chart_paths: dict, report_title: str = "Analytics Executive Report") -> str:
     prs = Presentation()
     prs.slide_width  = Inches(13.33)
     prs.slide_height = Inches(7.5)
@@ -199,7 +199,7 @@ def build_presentation(report_data: dict, chart_paths: dict) -> str:
     ins     = report_data["insights"]
 
     print("📝  Building slide deck...")
-    slide_title(prs)
+    slide_title(prs, report_name=report_title)
     slide_kpis(prs, kpis, ins)
     slide_trend(prs, chart_paths["monthly_trend"], ins)
     slide_category_products(prs, chart_paths["category"], chart_paths["top_products"], ins)

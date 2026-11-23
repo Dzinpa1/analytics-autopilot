@@ -884,7 +884,7 @@ with st.spinner("Compiling PowerPoint deck..."):
         "top_metric":  top_metric,
     }
     chart_paths = generate_all_charts(report_data, config=chart_config)
-    pptx_path   = build_presentation(report_data, chart_paths)
+    pptx_path   = build_presentation(report_data, chart_paths, report_title=report_title)
 
     with open(pptx_path, "rb") as f:
         pptx_bytes = f.read()
