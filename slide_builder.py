@@ -196,7 +196,7 @@ def slide_region_recommendations(prs, chart_region, insights, recs: list = None,
 
 
 # ── Master builder ─────────────────────────────────────────────────────────────
-def build_presentation(report_data: dict, chart_paths: dict, report_title: str = "Analytics Executive Report", narrative: dict = None) -> str:
+def build_presentation(report_data: dict, chart_paths: dict, report_title: str = "Analytics Executive Report", narrative: dict = None, output_dir: str = None) -> str:
     prs = Presentation()
     prs.slide_width  = Inches(13.33)
     prs.slide_height = Inches(7.5)
@@ -219,7 +219,9 @@ def build_presentation(report_data: dict, chart_paths: dict, report_title: str =
     slide_category_products(prs, chart_paths["category"], chart_paths["top_products"], ins, note=notes.get("slide_4"))
     slide_region_recommendations(prs, chart_paths["region"], ins, recs=custom_recs, note=notes.get("slide_5"))
 
-    out_path = os.path.join(OUTPUT_DIR, "Analytics_Report.pptx")
+    target_dir = output_dir or OUTPUT_DIR
+    os.makedirs(target_dir, exist_ok=True)
+    out_path = os.path.join(target_dir, "Analytics_Report.pptx")
     prs.save(out_path)
     print(f"  ✅  Deck saved → {out_path}")
     return out_path

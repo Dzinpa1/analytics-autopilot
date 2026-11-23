@@ -924,28 +924,31 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# POWERPOINT EXPORT PIPELINE
+# POWERPOINT EXPORT PIPELINE (Session-Scoped Concurrency via tempfile)
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown('<div class="section-title">One-Click Slide Deck Export</div>', unsafe_allow_html=True)
 
 with st.spinner("Compiling PowerPoint deck..."):
+    import tempfile
+    from chart_engine   import generate_all_charts
+    from slide_builder  import build_presentation
+
     # Synchronize user-selected top products ranking into report_data
     report_data["top_products"] = prod_rank
 
-    os.makedirs(os.path.join(os.path.dirname(__file__), "output"), exist_ok=True)
-    from chart_engine   import generate_all_charts
-    from slide_builder  import build_presentation
     chart_config = {
         "trend_type":  trend_style,
         "cat_type":    cat_style,
         "region_type": region_style,
         "top_metric":  top_metric,
     }
-    chart_paths = generate_all_charts(report_data, config=chart_config)
-    pptx_path   = build_presentation(report_data, chart_paths, report_title=report_title, narrative=narrative)
 
-    with open(pptx_path, "rb") as f:
-        pptx_bytes = f.read()
+    # Isolated temporary directory ensures simultaneous users never overwrite each other's charts/decks
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        chart_paths = generate_all_charts(report_data, config=chart_config, output_dir=tmp_dir)
+        pptx_path   = build_presentation(report_data, chart_paths, report_title=report_title, narrative=narrative, output_dir=tmp_dir)
+        with open(pptx_path, "rb") as f:
+            pptx_bytes = f.read()
 
 safe_title = report_title.replace(" ", "_")
 st.download_button(

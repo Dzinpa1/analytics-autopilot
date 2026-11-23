@@ -36,7 +36,7 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
 - [x] Cache AI responses in `st.session_state` so changing chart styles or clicking slide tabs does NOT re-trigger paid Gemini API calls.
 
 ### D. SaaS-Ready Concurrency, Branding & Deployment
-- [ ] Replace the shared `output/` directory in `chart_engine.py` and `slide_builder.py` with `tempfile.TemporaryDirectory()` (or session-scoped paths) so simultaneous users never overwrite each other's charts/decks.
+- [x] Replace the shared `output/` directory in `chart_engine.py` and `slide_builder.py` with `tempfile.TemporaryDirectory()` (or session-scoped paths) so simultaneous users never overwrite each other's charts/decks.
 - [ ] Add Custom Branding v0.2 (optional company logo upload + primary accent color picker passed into `slide_builder.py`).
 - [ ] Deploy live to **Streamlit Community Cloud** and share with 10–15 beta testers for real-world feedback.
 

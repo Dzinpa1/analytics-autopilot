@@ -27,12 +27,14 @@ def _try_import_plotly():
     return go, px
 
 
-def _save_fig(fig, name: str) -> str:
+def _save_fig(fig, name: str, output_dir: str = None) -> str:
     """Save PNG via kaleido; if unavailable or error, generate an image fallback so slide_builder never receives an HTML file."""
-    path_png = os.path.join(OUTPUT_DIR, name)
+    target_dir = output_dir or OUTPUT_DIR
+    os.makedirs(target_dir, exist_ok=True)
+    path_png = os.path.join(target_dir, name)
     try:
         fig.write_image(path_png, width=1100, height=550, scale=1.5)
-        print(f"  ✅  Saved PNG : {name}")
+        print(f"  ✅  Saved PNG : {path_png}")
         return path_png
     except Exception as e:
         print(f"  ⚠️   kaleido error ({e}) — writing image fallback for slide generation...")
@@ -67,7 +69,7 @@ def _layout(fig, title: str):
 
 
 # ── Chart 1: Monthly Trend ────────────────────────────────────────────────────
-def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars", has_profit: bool = True) -> str:
+def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars", has_profit: bool = True, output_dir: str = None) -> str:
     go, px = _try_import_plotly()
     fig = go.Figure()
 
@@ -120,11 +122,11 @@ def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars",
             _layout(fig, "Monthly Revenue Performance")
         fig.update_yaxes(tickprefix="$", tickformat=",.0f")
 
-    return _save_fig(fig, "chart_monthly_trend.png")
+    return _save_fig(fig, "chart_monthly_trend.png", output_dir=output_dir)
 
 
 # ── Chart 2: Category Breakdown ───────────────────────────────────────────────
-def chart_category(category: pd.DataFrame, chart_type: str = "Horizontal Bar", has_profit: bool = True) -> str:
+def chart_category(category: pd.DataFrame, chart_type: str = "Horizontal Bar", has_profit: bool = True, output_dir: str = None) -> str:
     go, px = _try_import_plotly()
 
     if chart_type == "Treemap":
@@ -161,11 +163,11 @@ def chart_category(category: pd.DataFrame, chart_type: str = "Horizontal Bar", h
         fig.update_xaxes(tickprefix="$", tickformat=",.0f")
         fig.update_yaxes(autorange="reversed")
 
-    return _save_fig(fig, "chart_category.png")
+    return _save_fig(fig, "chart_category.png", output_dir=output_dir)
 
 
 # ── Chart 3: Regional Distribution ────────────────────────────────────────────
-def chart_region(region: pd.DataFrame, chart_type: str = "Donut") -> str:
+def chart_region(region: pd.DataFrame, chart_type: str = "Donut", output_dir: str = None) -> str:
     go, px = _try_import_plotly()
 
     if chart_type == "Vertical Bar":
@@ -201,11 +203,11 @@ def chart_region(region: pd.DataFrame, chart_type: str = "Donut") -> str:
             margin=dict(l=40, r=40, t=70, b=40), showlegend=True,
         )
 
-    return _save_fig(fig, "chart_region.png")
+    return _save_fig(fig, "chart_region.png", output_dir=output_dir)
 
 
 # ── Chart 4: Top Products ─────────────────────────────────────────────────────
-def chart_top_products(top_products: pd.DataFrame, metric: str = "Revenue") -> str:
+def chart_top_products(top_products: pd.DataFrame, metric: str = "Revenue", output_dir: str = None) -> str:
     go, px = _try_import_plotly()
 
     val_col = metric if metric in top_products.columns else "Revenue"
@@ -224,10 +226,10 @@ def chart_top_products(top_products: pd.DataFrame, metric: str = "Revenue") -> s
     else:
         fig.update_yaxes(tickformat=",.0f")
 
-    return _save_fig(fig, "chart_top_products.png")
+    return _save_fig(fig, "chart_top_products.png", output_dir=output_dir)
 
 
-def generate_all_charts(report_data: dict, config: dict = None) -> dict:
+def generate_all_charts(report_data: dict, config: dict = None, output_dir: str = None) -> dict:
     if config is None:
         config = {}
 
@@ -237,14 +239,15 @@ def generate_all_charts(report_data: dict, config: dict = None) -> dict:
     top_metric  = config.get("top_metric", "Revenue")
     has_profit  = report_data.get("kpis", {}).get("has_profit", True)
 
-    print("\n📊  Generating charts with configuration:", config)
+    target_display = output_dir or "/output"
+    print(f"\n📊  Generating charts with configuration ({target_display}):", config)
     paths = {
-        "monthly_trend": chart_monthly_trend(report_data["monthly"], chart_type=trend_type, has_profit=has_profit),
-        "category":      chart_category(report_data["category"], chart_type=cat_type, has_profit=has_profit),
-        "region":        chart_region(report_data["region"], chart_type=region_type),
-        "top_products":  chart_top_products(report_data["top_products"], metric=top_metric),
+        "monthly_trend": chart_monthly_trend(report_data["monthly"], chart_type=trend_type, has_profit=has_profit, output_dir=output_dir),
+        "category":      chart_category(report_data["category"], chart_type=cat_type, has_profit=has_profit, output_dir=output_dir),
+        "region":        chart_region(report_data["region"], chart_type=region_type, output_dir=output_dir),
+        "top_products":  chart_top_products(report_data["top_products"], metric=top_metric, output_dir=output_dir),
     }
-    print("  All charts saved to /output\n")
+    print(f"  All charts saved to {target_display}\n")
     return paths
 
 
