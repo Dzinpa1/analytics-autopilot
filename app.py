@@ -454,6 +454,13 @@ with st.expander("🤖 AI Executive Settings (Google Gemini)", expanded=False):
     if not gemini_api_key_input:
         st.caption("✦ No API key provided? Analytics AutoPilot automatically uses our built-in deterministic executive commentary.")
 
+with st.expander("🎨 Brand Kit & White-Labeling (Optional)", expanded=False):
+    bc1, bc2 = st.columns(2)
+    with bc1:
+        brand_color = st.color_picker("Brand Accent Color", value="#6366F1", help="Select corporate accent color to theme the PowerPoint presentation.")
+    with bc2:
+        logo_file = st.file_uploader("Upload Brand Logo (.png, .jpg)", type=["png", "jpg", "jpeg"], help="Optional: Upload company logo for slide headers and cover.")
+
 # ─────────────────────────────────────────────────────────────────────────────
 # COMPUTE METRICS VIA ANALYSIS ENGINE (Single Source of Truth)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -804,9 +811,15 @@ if "slide_idx" not in st.session_state:
 margin_str = f"{profit_margin:.1f}%" if profit_margin is not None else "N/A"
 profit_str = fmt(total_profit) if total_profit is not None else "N/A"
 
+# Brand kit preview integrations
+import base64
+logo_b64 = f"data:image/png;base64,{base64.b64encode(logo_file.getvalue()).decode()}" if ('logo_file' in locals() and logo_file) else None
+logo_img_tag = f'<img src="{logo_b64}" style="max-height:42px;max-width:140px;object-fit:contain;margin-bottom:14px;display:block;" />' if logo_b64 else ''
+accent_tint = brand_color if ('brand_color' in locals() and brand_color) else "#6366F1"
+
 recs_grid_html = ""
 for r in recs[:4]:
-    accent = r.get("accent", "#6366F1")
+    accent = r.get("accent", accent_tint)
     recs_grid_html += f'''<div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid {accent};border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:{accent};text-transform:uppercase;">{r.get('tag', '')}</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;"><strong>{r.get('title', '')}:</strong> {r.get('body', '')}</div></div>'''
 
 slides = [
@@ -815,7 +828,7 @@ slides = [
         "name": "Executive Cover",
         "icon": "🏷️",
         "tag": "EXECUTIVE BRIEFING · SLIDE 01",
-        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:20px 0;"><div style="display:inline-block;padding:4px 12px;border-radius:20px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;font-size:11px;font-weight:700;letter-spacing:0.08em;margin-bottom:16px;width:fit-content;">✦ EXECUTIVE REPORT</div><h1 style="font-size:36px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;letter-spacing:-0.02em;line-height:1.2;">{report_title}</h1><p style="font-size:15px;color:#94A3B8;margin:0 0 24px 0;line-height:1.6;">Automated Full-Cycle Business Performance & Margin Analysis</p><div style="display:flex;gap:20px;font-size:12px;color:#64748B;"><span style="color:#A5B4FC;">● Certified Dataset</span><span>{len(df):,} Validated Transactions</span><span>Confidential · Boardroom Ready</span></div></div>''',
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:20px 0;">{logo_img_tag}<div style="display:inline-block;padding:4px 12px;border-radius:20px;background:rgba(99,102,241,0.15);border:1px solid {accent_tint};color:#A5B4FC;font-size:11px;font-weight:700;letter-spacing:0.08em;margin-bottom:16px;width:fit-content;">✦ EXECUTIVE REPORT</div><h1 style="font-size:36px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;letter-spacing:-0.02em;line-height:1.2;">{report_title}</h1><p style="font-size:15px;color:#94A3B8;margin:0 0 24px 0;line-height:1.6;">Automated Full-Cycle Business Performance & Margin Analysis</p><div style="display:flex;gap:20px;font-size:12px;color:#64748B;"><span style="color:{accent_tint};">● Certified Dataset</span><span>{len(df):,} Validated Transactions</span><span>Confidential · Boardroom Ready</span></div></div>''',
         "notes": speaker_notes.get("slide_1", f"Welcome everyone. Today we are reviewing our executive performance report for {report_title}. We will walk through our high-level KPIs, seasonal trends, category margin health, and strategic growth priorities.")
     },
     {
@@ -945,8 +958,22 @@ with st.spinner("Compiling PowerPoint deck..."):
 
     # Isolated temporary directory ensures simultaneous users never overwrite each other's charts/decks
     with tempfile.TemporaryDirectory() as tmp_dir:
+        logo_path = None
+        if 'logo_file' in locals() and logo_file:
+            logo_ext = logo_file.name.split('.')[-1]
+            logo_path = os.path.join(tmp_dir, f"brand_logo.{logo_ext}")
+            with open(logo_path, "wb") as f:
+                f.write(logo_file.getbuffer())
+
         chart_paths = generate_all_charts(report_data, config=chart_config, output_dir=tmp_dir)
-        pptx_path   = build_presentation(report_data, chart_paths, report_title=report_title, narrative=narrative, output_dir=tmp_dir)
+        pptx_path   = build_presentation(
+            report_data, chart_paths,
+            report_title=report_title,
+            narrative=narrative,
+            output_dir=tmp_dir,
+            brand_color=brand_color if 'brand_color' in locals() else None,
+            logo_path=logo_path
+        )
         with open(pptx_path, "rb") as f:
             pptx_bytes = f.read()
 
