@@ -103,7 +103,7 @@ def slide_title(prs, report_name="2024 Annual Sales Report", subtitle="Automated
 
 
 # ── Slide 2: KPI Overview ─────────────────────────────────────────────────────
-def slide_kpis(prs, kpis, insights, accent_color=None, logo_path=None):
+def slide_kpis(prs, kpis, insights, meta: dict = None, accent_color=None, logo_path=None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     header_color = accent_color if accent_color else C_DARK
     _add_rect(slide, 0, 0, 13.33, 1.1, header_color)
@@ -116,25 +116,32 @@ def slide_kpis(prs, kpis, insights, accent_color=None, logo_path=None):
         except Exception:
             pass
 
+    meta = meta or {}
+    rev_label = meta.get("rev_label", "Total Revenue")
+    profit_label = meta.get("profit_label", "Total Profit")
+    margin_label = meta.get("margin_label", "Profit Margin")
+    volume_label = meta.get("volume_label", "Total Orders")
+    aov_label = meta.get("aov_label", "Avg Order Value")
+
     # Row 1 — 4 KPI cards
     profit_display = f"${kpis['total_profit']:,.0f}" if kpis.get("total_profit") is not None else "N/A"
     margin_display = f"{kpis['profit_margin']}%" if kpis.get("profit_margin") is not None else "N/A"
 
     primary_kpi_color = accent_color if accent_color else C_BLUE
     cards_r1 = [
-        ("Total Revenue",   f"${kpis['total_revenue']:,.0f}",  0.3,  primary_kpi_color),
-        ("Total Profit",    profit_display,                     2.65, C_GREEN),
-        ("Profit Margin",   margin_display,                     5.0,  C_PURPLE),
-        ("Total Orders",    f"{kpis['total_orders']:,}",        7.35, C_AMBER),
+        (rev_label,     f"${kpis['total_revenue']:,.0f}",  0.3,  primary_kpi_color),
+        (profit_label,  profit_display,                     2.65, C_GREEN),
+        (margin_label,  margin_display,                     5.0,  C_PURPLE),
+        (volume_label,  f"{kpis['total_orders']:,}",        7.35, C_AMBER),
     ]
     for label, val, left, color in cards_r1:
         _kpi_card(slide, label, val, left, 1.4, color)
 
     # Row 2 — 3 KPI cards
     cards_r2 = [
-        ("Avg Order Value",  f"${kpis['avg_order_value']:,.2f}",  1.5,  primary_kpi_color),
+        (aov_label,          f"${kpis['avg_order_value']:,.2f}",  1.5,  primary_kpi_color),
         ("Return Rate",      f"{kpis['return_rate']}%",            3.85, C_AMBER),
-        ("Total Units Sold", f"{kpis['total_units']:,}",           6.2,  C_GREEN),
+        ("Total Units",      f"{kpis['total_units']:,}",           6.2,  C_GREEN),
     ]
     for label, val, left, color in cards_r2:
         _kpi_card(slide, label, val, left, 2.75, color)
@@ -145,9 +152,9 @@ def slide_kpis(prs, kpis, insights, accent_color=None, logo_path=None):
                  0.5, 4.2, 12, 0.5, size=13, bold=True, color=C_DARK)
 
     bullets = [
-        f"📈  Best performing month: {insights['best_month']}",
-        f"🏷️   Top revenue category: {insights['top_category']}  |  Top region: {insights['top_region']}",
-        f"🛒  Dominant sales channel: {insights['top_channel']}",
+        f"📈  Best performing period: {insights['best_month']}",
+        f"🏷️   Top vertical: {insights['top_category']}  |  Primary region: {insights['top_region']}",
+        f"🛒  Dominant channel: {insights['top_channel']}",
     ]
     for i, b in enumerate(bullets):
         _add_textbox(slide, b, 0.6, 4.75 + i * 0.65, 12.4, 0.5, size=12, color=C_DARK)
@@ -156,11 +163,12 @@ def slide_kpis(prs, kpis, insights, accent_color=None, logo_path=None):
 
 
 # ── Slide 3: Monthly Trend ────────────────────────────────────────────────────
-def slide_trend(prs, chart_path, insights, note: str = None, accent_color=None, logo_path=None):
+def slide_trend(prs, chart_path, insights, title: str = None, note: str = None, accent_color=None, logo_path=None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     header_color = accent_color if accent_color else C_BLUE
     _add_rect(slide, 0, 0, 13.33, 1.0, header_color)
-    _add_textbox(slide, "Monthly Revenue & Profit Trend",
+    slide_title_text = title or "Monthly Trajectory & Trend"
+    _add_textbox(slide, slide_title_text,
                  0.4, 0.15, 10, 0.75, size=22, bold=True, color=C_WHITE)
 
     if logo_path and os.path.exists(logo_path):
@@ -176,20 +184,20 @@ def slide_trend(prs, chart_path, insights, note: str = None, accent_color=None, 
     _add_textbox(slide, "Speaker Notes:",
                  0.5, 5.82, 12, 0.35, size=9, bold=True, color=C_GRAY)
     if not note:
-        note = (f"This chart shows monthly Revenue (blue) and Profit (green) for 2024. "
-                f"Our peak revenue month was {insights['best_month']}, while {insights['worst_month']} "
-                f"recorded the lowest performance. We should investigate seasonal drivers and ensure "
-                f"inventory and campaigns are aligned with our peak months next year.")
+        note = (f"This chart displays monthly trajectory. "
+                f"Peak performance was achieved in {insights['best_month']}, while {insights['worst_month']} "
+                f"recorded lowest activity. We recommend planning resource and marketing allocation accordingly.")
     _add_textbox(slide, note, 0.5, 6.15, 12.5, 1.1, size=10, color=C_DARK)
     return slide
 
 
 # ── Slide 4: Category & Product ───────────────────────────────────────────────
-def slide_category_products(prs, chart_cat, chart_prod, insights, note: str = None, accent_color=None, logo_path=None):
+def slide_category_products(prs, chart_cat, chart_prod, insights, title: str = None, note: str = None, accent_color=None, logo_path=None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     header_color = accent_color if accent_color else C_PURPLE
     _add_rect(slide, 0, 0, 13.33, 1.0, header_color)
-    _add_textbox(slide, "Category Performance & Top Products",
+    slide_title_text = title or "Vertical Performance & Rankings"
+    _add_textbox(slide, slide_title_text,
                  0.4, 0.15, 12, 0.75, size=22, bold=True, color=C_WHITE)
 
     if logo_path and os.path.exists(logo_path):
@@ -205,20 +213,19 @@ def slide_category_products(prs, chart_cat, chart_prod, insights, note: str = No
     _add_textbox(slide, "Speaker Notes:",
                  0.4, 5.28, 12, 0.35, size=9, bold=True, color=C_GRAY)
     if not note:
-        note = (f"{insights['top_category']} leads all categories by revenue. "
-                f"Focus on expanding the product range within this category and "
-                f"investigate whether lower-margin categories can be optimized on the cost side. "
-                f"The top 5 products should be prioritised in restocking and marketing campaigns.")
+        note = (f"{insights['top_category']} leads portfolio volume. "
+                f"Focus on expanding high-margin offerings while reviewing cost structures.")
     _add_textbox(slide, note, 0.4, 5.6, 12.5, 1.5, size=10, color=C_DARK)
     return slide
 
 
 # ── Slide 5: Regional Insights & Recommendations ─────────────────────────────
-def slide_region_recommendations(prs, chart_region, insights, recs: list = None, note: str = None, accent_color=None, logo_path=None):
+def slide_region_recommendations(prs, chart_region, insights, title: str = None, recs: list = None, note: str = None, accent_color=None, logo_path=None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     header_color = accent_color if accent_color else C_GREEN
     _add_rect(slide, 0, 0, 13.33, 1.0, header_color)
-    _add_textbox(slide, "Regional Revenue & Strategic Recommendations",
+    slide_title_text = title or "Geographic Distribution & Strategic Recommendations"
+    _add_textbox(slide, slide_title_text,
                  0.4, 0.15, 12, 0.75, size=20, bold=True, color=C_WHITE)
 
     if logo_path and os.path.exists(logo_path):
@@ -232,15 +239,15 @@ def slide_region_recommendations(prs, chart_region, insights, recs: list = None,
 
     if not recs:
         recs = [
-            ("📍  Top Region",    f"{insights['top_region']} leads in revenue — prioritize this region for new product launches."),
-            ("🛒  Best Channel",  f"{insights['top_channel']} is the dominant sales channel. Invest in UX/conversion optimization here."),
-            ("📈  Growth Driver", f"Focus on upsell campaigns during peak months ({insights['best_month']}) for maximum impact."),
-            ("⚠️   Weak Period",  f"Revenue dips in {insights['worst_month']}. Consider targeted promotions or bundle deals during this period."),
+            ("📍  Top Region",    f"{insights['top_region']} leads in volume — prioritize this territory for scaling."),
+            ("🛒  Best Channel",  f"{insights['top_channel']} is the dominant channel. Optimize conversion touchpoints here."),
+            ("📈  Growth Driver", f"Focus on high-impact initiatives during peak cycles ({insights['best_month']})."),
+            ("⚠️   Weak Period",  f"Activity softens in {insights['worst_month']}. Deploy bridge initiatives during this window."),
         ]
-    for i, (title, body) in enumerate(recs[:4]):
+    for i, (title_item, body) in enumerate(recs[:4]):
         top = 1.2 + i * 1.5
         _add_rect(slide, 6.4, top, 6.7, 1.3, C_LIGHT)
-        _add_textbox(slide, title, 6.6, top + 0.08, 6.4, 0.38, size=11, bold=True, color=C_BLUE)
+        _add_textbox(slide, title_item, 6.6, top + 0.08, 6.4, 0.38, size=11, bold=True, color=C_BLUE)
         _add_textbox(slide, body,  6.6, top + 0.48, 6.4, 0.75, size=10, color=C_DARK)
 
     return slide
@@ -254,6 +261,8 @@ def build_presentation(report_data: dict, chart_paths: dict, report_title: str =
 
     kpis    = report_data["kpis"]
     ins     = report_data["insights"]
+    meta    = report_data.get("meta", {})
+    mode    = report_data.get("report_mode", "Sales & Retail Performance")
 
     notes = narrative.get("speaker_notes", {}) if narrative else {}
     custom_recs = None
@@ -265,12 +274,19 @@ def build_presentation(report_data: dict, chart_paths: dict, report_title: str =
 
     accent_rgb = hex_to_rgb(brand_color) if brand_color else None
 
-    print("📝  Building slide deck...")
-    slide_title(prs, report_name=report_title, accent_color=accent_rgb, logo_path=logo_path)
-    slide_kpis(prs, kpis, ins, accent_color=accent_rgb, logo_path=logo_path)
-    slide_trend(prs, chart_paths["monthly_trend"], ins, note=notes.get("slide_3"), accent_color=accent_rgb, logo_path=logo_path)
-    slide_category_products(prs, chart_paths["category"], chart_paths["top_products"], ins, note=notes.get("slide_4"), accent_color=accent_rgb, logo_path=logo_path)
-    slide_region_recommendations(prs, chart_paths["region"], ins, recs=custom_recs, note=notes.get("slide_5"), accent_color=accent_rgb, logo_path=logo_path)
+    print(f"📝  Building slide deck ({mode})...")
+    subtitle_text = f"Executive Edition  |  {mode}"
+    slide_title(prs, report_name=report_title, subtitle=subtitle_text, accent_color=accent_rgb, logo_path=logo_path)
+    slide_kpis(prs, kpis, ins, meta=meta, accent_color=accent_rgb, logo_path=logo_path)
+    
+    trend_header = meta.get("trend_title", "Monthly Trajectory & Trend")
+    slide_trend(prs, chart_paths["monthly_trend"], ins, title=trend_header, note=notes.get("slide_3"), accent_color=accent_rgb, logo_path=logo_path)
+    
+    cat_header = f"{meta.get('category_title', 'Vertical Performance')} & Rankings"
+    slide_category_products(prs, chart_paths["category"], chart_paths["top_products"], ins, title=cat_header, note=notes.get("slide_4"), accent_color=accent_rgb, logo_path=logo_path)
+    
+    reg_header = f"{meta.get('region_title', 'Regional Distribution')} & Recommendations"
+    slide_region_recommendations(prs, chart_paths["region"], ins, title=reg_header, recs=custom_recs, note=notes.get("slide_5"), accent_color=accent_rgb, logo_path=logo_path)
 
     target_dir = output_dir or OUTPUT_DIR
     os.makedirs(target_dir, exist_ok=True)

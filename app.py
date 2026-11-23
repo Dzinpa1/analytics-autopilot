@@ -382,18 +382,37 @@ st.markdown("""
 # ─────────────────────────────────────────────────────────────────────────────
 # CONTROL RAIL (File Upload & Settings)
 # ─────────────────────────────────────────────────────────────────────────────
-c_upload, c_settings = st.columns([2, 1])
+c_upload, c_mode, c_settings = st.columns([1.8, 1.2, 1.4])
 
 with c_upload:
+    st.markdown('<div style="font-size:12px;font-weight:600;color:#94A3B8;margin-bottom:6px;">Upload Dataset (.csv, .xlsx)</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
         "Upload dataset (.csv, .xlsx, .xls)",
         type=["csv", "xlsx", "xls"],
         label_visibility="collapsed"
     )
 
+with c_mode:
+    st.markdown('<div style="font-size:12px;font-weight:600;color:#94A3B8;margin-bottom:6px;">Report Mode</div>', unsafe_allow_html=True)
+    report_mode = st.selectbox(
+        "Report Mode",
+        ["Sales & Retail Performance", "Marketing & Ad Campaign ROI", "Operations & Expense Tracker"],
+        index=0,
+        label_visibility="collapsed",
+        help="Adapts KPI metrics, AI boardroom commentary, and slide structures to your specific business workflow."
+    )
+
+default_titles = {
+    "Sales & Retail Performance": "2024 Sales Performance Review",
+    "Marketing & Ad Campaign ROI": "2024 Marketing ROI & Ad Spend Review",
+    "Operations & Expense Tracker": "2024 Operations & Expense Report"
+}
+
 with c_settings:
-    report_title = st.text_input("Presentation Title", value="2024 Sales Performance Review")
-    use_sample   = st.checkbox("⚡ Load 1,200-row sample dataset", value=False if uploaded_file else True)
+    st.markdown('<div style="font-size:12px;font-weight:600;color:#94A3B8;margin-bottom:6px;">Presentation Title</div>', unsafe_allow_html=True)
+    suggested_title = default_titles.get(report_mode, "2024 Executive Performance Review")
+    report_title = st.text_input("Presentation Title", value=suggested_title, label_visibility="collapsed")
+    use_sample   = st.checkbox("⚡ Load sample dataset", value=False if uploaded_file else True)
 
 if not uploaded_file and not use_sample:
     st.info("👆 Drop a CSV/Excel file or check the sample dataset box to generate the report.")
@@ -422,27 +441,47 @@ def fcol_opt(candidates):
             if c.lower() in col.lower(): return col
     return "None / Not Available"
 
-date_col    = fcol(["date","time","day","month"])
-revenue_col = fcol(["revenue","sales","amount","income","total"])
-profit_col  = fcol_opt(["profit","margin","net"])
-cost_col    = fcol_opt(["cost","expense","cogs"])
-cat_col     = fcol(["category","type","segment"])
-region_col  = fcol(["region","area","zone","location"])
+# Mode-specific column candidate prioritization
+if "Marketing" in report_mode:
+    date_col    = fcol(["date","time","day","month","period"])
+    revenue_col = fcol(["spend","ad_spend","budget","investment","revenue","sales","cost","amount","total"])
+    profit_col  = fcol_opt(["conversions","leads","acquisitions","return","profit","margin","net"])
+    cost_col    = fcol_opt(["cpc","cpa","cost","expense"])
+    cat_col     = fcol(["channel","campaign","network","source","medium","category","type"])
+    region_col  = fcol(["region","country","market","geo","location","city","audience"])
+elif "Operations" in report_mode:
+    date_col    = fcol(["date","time","day","month","period"])
+    revenue_col = fcol(["budget","allocated","target","total_budget","revenue","amount","total"])
+    profit_col  = fcol_opt(["expense","actual","spend","cost","variance","profit"])
+    cost_col    = fcol_opt(["cogs","fixed_cost","variable_cost","overhead","cost"])
+    cat_col     = fcol(["department","dept","cost_center","unit","function","category","type"])
+    region_col  = fcol(["facility","branch","site","warehouse","region","location","plant"])
+else:  # Sales & Retail Performance
+    date_col    = fcol(["date","time","day","month"])
+    revenue_col = fcol(["revenue","sales","amount","income","total"])
+    profit_col  = fcol_opt(["profit","margin","net"])
+    cost_col    = fcol_opt(["cost","expense","cogs"])
+    cat_col     = fcol(["category","type","segment"])
+    region_col  = fcol(["region","area","zone","location"])
 
 opt_cols = ["None / Not Available"] + cols
 
-# Column mapping collapse
+# Column mapping collapse with role-specific label helpers
 with st.expander("⚙️ Verify Auto-Mapped Columns", expanded=False):
     mc1, mc2, mc3 = st.columns(3)
     with mc1:
+        rev_input_label = "Ad Spend / Revenue Column" if "Marketing" in report_mode else ("Budget / Allocation Column" if "Operations" in report_mode else "Revenue Column")
         date_col    = st.selectbox("Date Column", cols, index=cols.index(date_col))
-        revenue_col = st.selectbox("Revenue Column", cols, index=cols.index(revenue_col))
+        revenue_col = st.selectbox(rev_input_label, cols, index=cols.index(revenue_col))
     with mc2:
-        profit_col  = st.selectbox("Profit Column (Optional)", opt_cols, index=opt_cols.index(profit_col))
-        cost_col    = st.selectbox("Cost Column (Optional)", opt_cols, index=opt_cols.index(cost_col))
+        profit_input_label = "Conversions / Return (Optional)" if "Marketing" in report_mode else ("Actual Expenses (Optional)" if "Operations" in report_mode else "Profit Column (Optional)")
+        profit_col  = st.selectbox(profit_input_label, opt_cols, index=opt_cols.index(profit_col))
+        cost_col    = st.selectbox("Cost / CPA Column (Optional)", opt_cols, index=opt_cols.index(cost_col))
     with mc3:
-        cat_col     = st.selectbox("Category Column", cols, index=cols.index(cat_col))
-        region_col  = st.selectbox("Region Column", cols, index=cols.index(region_col))
+        cat_input_label = "Channel / Campaign Column" if "Marketing" in report_mode else ("Department / Cost Center" if "Operations" in report_mode else "Category Column")
+        reg_input_label = "Market / Geo Column" if "Marketing" in report_mode else ("Facility / Location" if "Operations" in report_mode else "Region Column")
+        cat_col     = st.selectbox(cat_input_label, cols, index=cols.index(cat_col))
+        region_col  = st.selectbox(reg_input_label, cols, index=cols.index(region_col))
 
 with st.expander("🤖 AI Executive Settings (Google Gemini)", expanded=False):
     gemini_api_key_input = st.text_input(
@@ -452,7 +491,7 @@ with st.expander("🤖 AI Executive Settings (Google Gemini)", expanded=False):
         help="Paste your Gemini API key to generate live tailored executive narratives and speaker scripts. Key is stored only in session state."
     )
     if not gemini_api_key_input:
-        st.caption("✦ No API key provided? Analytics AutoPilot automatically uses our built-in deterministic executive commentary.")
+        st.caption(f"✦ No API key provided? Analytics AutoPilot automatically generates our built-in {report_mode} executive commentary.")
 
 with st.expander("🎨 Brand Kit & White-Labeling (Optional)", expanded=False):
     bc1, bc2 = st.columns(2)
@@ -477,7 +516,7 @@ col_mapping = {
 }
 
 try:
-    report_data = build_report_from_df(df, mapping=col_mapping)
+    report_data = build_report_from_df(df, mapping=col_mapping, report_mode=report_mode)
 except Exception as e:
     st.error(f"⚠️ **Could not process this spreadsheet:** {str(e)}\n\nPlease ensure your Date and Revenue columns contain valid values.")
     st.stop()
@@ -503,6 +542,7 @@ top_region  = insights["top_region"]
 mom_avg     = insights["avg_mom_growth"]
 cat_col     = "Category"
 region_col  = "Region"
+meta        = report_data.get("meta", {})
 
 def fmt(v):
     if v is None: return "N/A"
@@ -511,7 +551,7 @@ def fmt(v):
     return f"${v:,.0f}"
 
 profit_display = fmt(total_profit) if has_profit and total_profit is not None else "Not Available"
-profit_pill    = "After All Costs" if has_profit and total_profit is not None else "Revenue Mode"
+profit_pill    = meta.get("profit_sub", "After All Costs") if has_profit and total_profit is not None else "Allocation Mode"
 
 if has_profit and profit_margin is not None:
     margin_display = f"{profit_margin:.1f}%"
@@ -519,7 +559,7 @@ if has_profit and profit_margin is not None:
     margin_pill_class = "pill-purple" if profit_margin >= 35.0 else "pill-amber"
 else:
     margin_display = "N/A"
-    margin_pill    = "Profit Unmapped"
+    margin_pill    = "Margin Unmapped"
     margin_pill_class = "pill-blue"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -529,14 +569,14 @@ from ai_narrator import generate_narrative, get_gemini_api_key
 
 active_api_key = (gemini_api_key_input.strip() if 'gemini_api_key_input' in locals() and gemini_api_key_input else None) or get_gemini_api_key()
 
-cache_key = f"nar_{report_title}_{total_revenue}_{total_orders}_{bool(active_api_key)}"
+cache_key = f"nar_{report_mode}_{report_title}_{total_revenue}_{total_orders}_{bool(active_api_key)}"
 if "narrative_cache" not in st.session_state:
     st.session_state.narrative_cache = {}
 
 if cache_key not in st.session_state.narrative_cache:
-    with st.spinner("🧠 Synthesizing executive narrative..."):
+    with st.spinner(f"🧠 Synthesizing executive narrative ({report_mode})..."):
         st.session_state.narrative_cache[cache_key] = generate_narrative(
-            report_data, report_title=report_title, api_key=active_api_key
+            report_data, report_title=report_title, report_mode=report_mode, api_key=active_api_key
         )
 
 narrative     = st.session_state.narrative_cache[cache_key]
@@ -547,7 +587,7 @@ takeaways     = narrative.get("takeaways", [])
 # ─────────────────────────────────────────────────────────────────────────────
 # KPI CARDS (Linear Obsidian Style)
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">Core Performance Indicators</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="section-title">Core Performance Indicators <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;margin-left:8px;">{report_mode}</span></div>', unsafe_allow_html=True)
 
 if narrative.get("executive_summary"):
     st.markdown(f"""
@@ -557,27 +597,33 @@ if narrative.get("executive_summary"):
     </div>
     """, unsafe_allow_html=True)
 
+kpi_rev_lbl = meta.get("rev_label", "Gross Revenue")
+kpi_profit_lbl = meta.get("profit_label", "Net Profit")
+kpi_margin_lbl = meta.get("margin_label", "Profit Margin")
+kpi_vol_lbl = meta.get("volume_label", "Total Volume")
+kpi_aov_lbl = meta.get("aov_label", "AOV")
+
 st.markdown(f"""
 <div class="kpi-row">
     <div class="kpi-card">
-        <div class="kpi-label">Gross Revenue</div>
+        <div class="kpi-label">{kpi_rev_lbl}</div>
         <div class="kpi-value">{fmt(total_revenue)}</div>
         <div class="kpi-pill pill-blue">↑ {mom_avg:.1f}% Avg MoM</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-label">Net Profit</div>
+        <div class="kpi-label">{kpi_profit_lbl}</div>
         <div class="kpi-value">{profit_display}</div>
         <div class="kpi-pill pill-green">{profit_pill}</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-label">Profit Margin</div>
+        <div class="kpi-label">{kpi_margin_lbl}</div>
         <div class="kpi-value">{margin_display}</div>
         <div class="kpi-pill {margin_pill_class}">{margin_pill}</div>
     </div>
     <div class="kpi-card">
-        <div class="kpi-label">Total Volume</div>
+        <div class="kpi-label">{kpi_vol_lbl}</div>
         <div class="kpi-value">{total_orders:,}</div>
-        <div class="kpi-pill pill-amber">AOV: {fmt(avg_order_val)}</div>
+        <div class="kpi-pill pill-amber">{kpi_aov_lbl}: {fmt(avg_order_val)}</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -827,40 +873,40 @@ slides = [
         "num": "01",
         "name": "Executive Cover",
         "icon": "🏷️",
-        "tag": "EXECUTIVE BRIEFING · SLIDE 01",
-        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:20px 0;">{logo_img_tag}<div style="display:inline-block;padding:4px 12px;border-radius:20px;background:rgba(99,102,241,0.15);border:1px solid {accent_tint};color:#A5B4FC;font-size:11px;font-weight:700;letter-spacing:0.08em;margin-bottom:16px;width:fit-content;">✦ EXECUTIVE REPORT</div><h1 style="font-size:36px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;letter-spacing:-0.02em;line-height:1.2;">{report_title}</h1><p style="font-size:15px;color:#94A3B8;margin:0 0 24px 0;line-height:1.6;">Automated Full-Cycle Business Performance & Margin Analysis</p><div style="display:flex;gap:20px;font-size:12px;color:#64748B;"><span style="color:{accent_tint};">● Certified Dataset</span><span>{len(df):,} Validated Transactions</span><span>Confidential · Boardroom Ready</span></div></div>''',
+        "tag": f"EXECUTIVE BRIEFING · {report_mode.upper()}",
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:20px 0;">{logo_img_tag}<div style="display:inline-block;padding:4px 12px;border-radius:20px;background:rgba(99,102,241,0.15);border:1px solid {accent_tint};color:#A5B4FC;font-size:11px;font-weight:700;letter-spacing:0.08em;margin-bottom:16px;width:fit-content;">✦ EXECUTIVE REPORT · {report_mode.upper()}</div><h1 style="font-size:36px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;letter-spacing:-0.02em;line-height:1.2;">{report_title}</h1><p style="font-size:15px;color:#94A3B8;margin:0 0 24px 0;line-height:1.6;">Automated Executive Analysis & Strategic Action Plan</p><div style="display:flex;gap:20px;font-size:12px;color:#64748B;"><span style="color:{accent_tint};">● Certified Dataset</span><span>{len(df):,} Validated Records</span><span>Confidential · Boardroom Ready</span></div></div>''',
         "notes": speaker_notes.get("slide_1", f"Welcome everyone. Today we are reviewing our executive performance report for {report_title}. We will walk through our high-level KPIs, seasonal trends, category margin health, and strategic growth priorities.")
     },
     {
         "num": "02",
         "name": "KPI Matrix",
         "icon": "📌",
-        "tag": "FINANCIAL HIGHLIGHTS · SLIDE 02",
-        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">GROSS REVENUE</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">↑ {mom_avg:.1f}% Avg MoM</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">NET PROFIT</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{profit_str}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">{profit_pill}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">PROFIT MARGIN</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{margin_str}</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">{margin_pill}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">ORDER VOLUME</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">AOV: {fmt(avg_order_val)}</div></div></div><div style="background:#0E131F;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: Gross revenue closed at {fmt(total_revenue)} with healthy margin retention at {margin_str}, indicating strong pricing power and controlled fulfillment costs.</div></div>''',
+        "tag": "EXECUTIVE HIGHLIGHTS · SLIDE 02",
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial & Operational Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_rev_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">↑ {mom_avg:.1f}% Avg MoM</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_profit_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{profit_str}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">{profit_pill}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_margin_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{margin_str}</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">{margin_pill}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_vol_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">{kpi_aov_lbl}: {fmt(avg_order_val)}</div></div></div><div style="background:#0E131F;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: {kpi_rev_lbl} closed at {fmt(total_revenue)} with healthy margin retention at {margin_str}, indicating disciplined capital allocation and commercial control.</div></div>''',
         "notes": speaker_notes.get("slide_2", f"Slide 2 outlines our bottom-line numbers. Net profit reached {profit_str} on {fmt(total_revenue)} of gross revenue. With an average order value of {fmt(avg_order_val)}, our {margin_str} margins give us substantial headroom to invest in marketing.")
     },
     {
         "num": "03",
-        "name": "Monthly Trajectory",
+        "name": "Trajectory",
         "icon": "📈",
         "tag": "MOMENTUM & SEASONALITY · SLIDE 03",
-        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Annual Trajectory & Peak Analysis</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;"><div style="font-size:11px;color:#38BDF8;font-weight:700;text-transform:uppercase;">🏆 Annual High-Water Mark</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{best_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Highest monthly revenue concentration. Driven by accelerated consumer demand and promotional alignment.</p></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;"><div style="font-size:11px;color:#F87171;font-weight:700;text-transform:uppercase;">⚠️ Seasonal Contraction Window</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{worst_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Softest period recorded. Represents our primary opportunity for strategic counter-cyclical campaigns.</p></div></div><div style="background:#0E131F;border-left:3px solid #38BDF8;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Executive Guidance: Ramp up supply chain readiness 45 days prior to {best_month} to avoid stock-outs.</div></div>''',
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{meta.get("trend_title", "Annual Trajectory & Peak Analysis")}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;"><div style="font-size:11px;color:#38BDF8;font-weight:700;text-transform:uppercase;">🏆 Annual High-Water Mark</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{best_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Highest activity concentration recorded. Driven by aligned campaign flights and peak demand velocity.</p></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;"><div style="font-size:11px;color:#F87171;font-weight:700;text-transform:uppercase;">⚠️ Contraction Window</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{worst_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Softest period recorded. Represents our primary opportunity for strategic counter-cyclical initiatives.</p></div></div><div style="background:#0E131F;border-left:3px solid #38BDF8;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Executive Guidance: Ramp up operational readiness 45 days prior to {best_month} to maximize capture rate.</div></div>''',
         "notes": speaker_notes.get("slide_3", f"Looking at seasonality on slide 3: our peak performance hit in {best_month}. Conversely, {worst_month} showed our seasonal trough. We recommend timing next year's promotional budget to hedge this exact slow period.")
     },
     {
         "num": "04",
-        "name": "Category Dominance",
+        "name": "Segmentation",
         "icon": "🏆",
         "tag": "PORTFOLIO MIX · SLIDE 04",
-        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Product Category & Margin Contribution</div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:16px;font-weight:800;color:#F8FAFC;">Top Category: {top_cat}</span><span style="font-size:12px;font-weight:700;color:#34D399;background:rgba(16,185,129,0.12);padding:4px 10px;border-radius:12px;">{margin_str} Avg Margin</span></div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.6;">{top_cat} accounts for the single largest revenue and profit contribution in our portfolio. Unit velocity is supported by high customer retention.</p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#0E131F;border-left:3px solid #C084FC;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Lead SKU Focus:</strong> Prioritize safety stock in top 5 product variants to meet consistent reorder volume.</div><div style="background:#0E131F;border-left:3px solid #FBBF24;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Margin Expansion:</strong> Explore bundle pricing to lift lower-velocity catalog items.</div></div></div>''',
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{meta.get("category_title", "Portfolio Category & Contribution")}</div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:16px;font-weight:800;color:#F8FAFC;">Top Vertical: {top_cat}</span><span style="font-size:12px;font-weight:700;color:#34D399;background:rgba(16,185,129,0.12);padding:4px 10px;border-radius:12px;">{margin_str} Efficiency Index</span></div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.6;">{top_cat} accounts for the single largest volume and return contribution in our portfolio. Velocity is supported by high organic repeat rates.</p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#0E131F;border-left:3px solid #C084FC;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Lead Driver Focus:</strong> Double down on top 5 performing units to capture compounding scale.</div><div style="background:#0E131F;border-left:3px solid #FBBF24;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Efficiency Expansion:</strong> Audit lower-velocity categories on the cost side to optimize margin.</div></div></div>''',
         "notes": speaker_notes.get("slide_4", f"On slide 4, {top_cat} is our clear anchor category. It produces the bulk of our gross margin. Our recommendation here is to double down on inventory depth for our top 5 SKUs while reviewing cost structures for trailing categories.")
     },
     {
         "num": "05",
-        "name": "Strategic Recommendations",
+        "name": "Action Plan",
         "icon": "📍",
-        "tag": "ACTION PLAN · SLIDE 05",
-        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Strategic Priorities & Next Steps</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">{recs_grid_html}</div></div>''',
+        "tag": "STRATEGIC ROADMAP · SLIDE 05",
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{meta.get("region_title", "Strategic Priorities & Next Steps")}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">{recs_grid_html}</div></div>''',
         "notes": speaker_notes.get("slide_5", f"Finally, slide 5 gives leadership four immediate action items: First, capture more market share in {top_region}; second, protect our {margin_str} margins; third, launch campaigns to lift {worst_month}; and fourth, test bundle add-ons to increase our {fmt(avg_order_val)} average order value.")
     },
 ]

@@ -136,7 +136,57 @@ def channel_breakdown(df: pd.DataFrame) -> pd.DataFrame:
     return ch.sort_values("Revenue", ascending=False)
 
 
-def build_report_from_df(df: pd.DataFrame, mapping: dict = None) -> dict:
+def get_mode_kpi_labels(report_mode: str = "Sales & Retail Performance") -> dict:
+    """Returns role-specific labels and subtitles based on the chosen Report Mode."""
+    mode = report_mode or "Sales & Retail Performance"
+    if "Marketing" in mode:
+        return {
+            "mode": mode,
+            "rev_label": "Total Ad Spend",
+            "profit_label": "Net Return",
+            "margin_label": "ROAS / Margin",
+            "volume_label": "Total Conversions",
+            "rev_sub": "Spent Across Campaigns",
+            "profit_sub": "Return Generated",
+            "aov_label": "Cost Per Acquisition (CPA)",
+            "trend_title": "Monthly Spend & Conversion Trajectory",
+            "category_title": "Channel & Campaign Efficiency",
+            "product_title": "Top Performing Campaigns / Ads",
+            "region_title": "Target Audience Geography",
+        }
+    elif "Operations" in mode:
+        return {
+            "mode": mode,
+            "rev_label": "Operating Budget",
+            "profit_label": "Net Expenses",
+            "margin_label": "Budget Efficiency",
+            "volume_label": "Total Work Orders",
+            "rev_sub": "Allocated Capital",
+            "profit_sub": "Disbursed / Actuals",
+            "aov_label": "Avg Cost per Unit/Order",
+            "trend_title": "Monthly Operating Expenses & Variance",
+            "category_title": "Cost Center & Department Breakdown",
+            "product_title": "Top Operational Expense Items",
+            "region_title": "Facility & Regional Operations",
+        }
+    else:  # Sales & Retail Performance
+        return {
+            "mode": mode,
+            "rev_label": "Gross Revenue",
+            "profit_label": "Net Profit",
+            "margin_label": "Profit Margin",
+            "volume_label": "Total Volume",
+            "rev_sub": "Top-Line Revenue",
+            "profit_sub": "After All Costs",
+            "aov_label": "Average Order Value (AOV)",
+            "trend_title": "Monthly Revenue & Profit Trajectory",
+            "category_title": "Revenue & Margin by Category",
+            "product_title": "Product Leaderboard",
+            "region_title": "Regional Market Distribution",
+        }
+
+
+def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: str = "Sales & Retail Performance") -> dict:
     """
     Core deterministic data engine. Takes any raw or mapped DataFrame,
     normalizes columns, strips currency characters, and computes all KPIs.
@@ -233,6 +283,8 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None) -> dict:
         "region":       region,
         "top_products": products,
         "channels":     channels,
+        "report_mode":  report_mode,
+        "meta":         get_mode_kpi_labels(report_mode),
         "insights": {
             "best_month":     best_month,
             "worst_month":    worst_month,
@@ -244,9 +296,9 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None) -> dict:
     }
 
 
-def build_report(filepath: str) -> dict:
+def build_report(filepath: str, report_mode: str = "Sales & Retail Performance") -> dict:
     df = load_and_validate(filepath)
-    return build_report_from_df(df)
+    return build_report_from_df(df, report_mode=report_mode)
 
 
 if __name__ == "__main__":
