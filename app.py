@@ -919,22 +919,12 @@ ai_badge = '<span style="margin-left:12px;font-size:11px;font-weight:600;padding
 
 st.markdown(f'<div class="section-title">Automated Executive Takeaways {ai_badge}</div>', unsafe_allow_html=True)
 
-takeaway_cards_html = ""
-for t in takeaways[:3]:
-    takeaway_cards_html += f'''
-    <div class="insight-card">
-        <div class="insight-title">{t.get("icon", "💡")} {t.get("title", "Key Finding")}</div>
-        <div class="insight-body">
-            {t.get("body", "")}
-        </div>
-    </div>
-    '''
+takeaway_cards_html = "".join([
+    f'<div class="insight-card"><div class="insight-title">{t.get("icon", "💡")} {t.get("title", "Key Finding")}</div><div class="insight-body">{t.get("body", "")}</div></div>'
+    for t in takeaways[:3]
+])
 
-st.markdown(f"""
-<div class="insight-grid">
-    {takeaway_cards_html}
-</div>
-""", unsafe_allow_html=True)
+st.markdown(f'<div class="insight-grid">{takeaway_cards_html}</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # POWERPOINT EXPORT PIPELINE (Session-Scoped Concurrency via tempfile)
