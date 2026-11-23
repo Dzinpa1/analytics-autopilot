@@ -444,6 +444,16 @@ with st.expander("⚙️ Verify Auto-Mapped Columns", expanded=False):
         cat_col     = st.selectbox("Category Column", cols, index=cols.index(cat_col))
         region_col  = st.selectbox("Region Column", cols, index=cols.index(region_col))
 
+with st.expander("🤖 AI Executive Settings (Google Gemini)", expanded=False):
+    gemini_api_key_input = st.text_input(
+        "Gemini API Key (Optional)",
+        type="password",
+        placeholder="AIzaSy... (leave blank to use built-in template)",
+        help="Paste your Gemini API key to generate live tailored executive narratives and speaker scripts. Key is stored only in session state."
+    )
+    if not gemini_api_key_input:
+        st.caption("✦ No API key provided? Analytics AutoPilot automatically uses our built-in deterministic executive commentary.")
+
 # ─────────────────────────────────────────────────────────────────────────────
 # COMPUTE METRICS VIA ANALYSIS ENGINE (Single Source of Truth)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -506,9 +516,39 @@ else:
     margin_pill_class = "pill-blue"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# AI NARRATIVE GENERATION (Cached in st.session_state)
+# ─────────────────────────────────────────────────────────────────────────────
+from ai_narrator import generate_narrative, get_gemini_api_key
+
+active_api_key = (gemini_api_key_input.strip() if 'gemini_api_key_input' in locals() and gemini_api_key_input else None) or get_gemini_api_key()
+
+cache_key = f"nar_{report_title}_{total_revenue}_{total_orders}_{bool(active_api_key)}"
+if "narrative_cache" not in st.session_state:
+    st.session_state.narrative_cache = {}
+
+if cache_key not in st.session_state.narrative_cache:
+    with st.spinner("🧠 Synthesizing executive narrative..."):
+        st.session_state.narrative_cache[cache_key] = generate_narrative(
+            report_data, report_title=report_title, api_key=active_api_key
+        )
+
+narrative     = st.session_state.narrative_cache[cache_key]
+speaker_notes = narrative.get("speaker_notes", {})
+recs          = narrative.get("recommendations", [])
+takeaways     = narrative.get("takeaways", [])
+
+# ─────────────────────────────────────────────────────────────────────────────
 # KPI CARDS (Linear Obsidian Style)
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown('<div class="section-title">Core Performance Indicators</div>', unsafe_allow_html=True)
+
+if narrative.get("executive_summary"):
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(56,189,248,0.04));border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:14px 18px;margin-bottom:20px;font-size:13px;color:#E2E8F0;line-height:1.6;">
+        <span style="font-weight:700;color:#A5B4FC;margin-right:8px;">✦ EXECUTIVE BRIEFING:</span>
+        {narrative['executive_summary']}
+    </div>
+    """, unsafe_allow_html=True)
 
 st.markdown(f"""
 <div class="kpi-row">
@@ -764,6 +804,11 @@ if "slide_idx" not in st.session_state:
 margin_str = f"{profit_margin:.1f}%" if profit_margin is not None else "N/A"
 profit_str = fmt(total_profit) if total_profit is not None else "N/A"
 
+recs_grid_html = ""
+for r in recs[:4]:
+    accent = r.get("accent", "#6366F1")
+    recs_grid_html += f'''<div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid {accent};border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:{accent};text-transform:uppercase;">{r.get('tag', '')}</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;"><strong>{r.get('title', '')}:</strong> {r.get('body', '')}</div></div>'''
+
 slides = [
     {
         "num": "01",
@@ -771,7 +816,7 @@ slides = [
         "icon": "🏷️",
         "tag": "EXECUTIVE BRIEFING · SLIDE 01",
         "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:20px 0;"><div style="display:inline-block;padding:4px 12px;border-radius:20px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;font-size:11px;font-weight:700;letter-spacing:0.08em;margin-bottom:16px;width:fit-content;">✦ EXECUTIVE REPORT</div><h1 style="font-size:36px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;letter-spacing:-0.02em;line-height:1.2;">{report_title}</h1><p style="font-size:15px;color:#94A3B8;margin:0 0 24px 0;line-height:1.6;">Automated Full-Cycle Business Performance & Margin Analysis</p><div style="display:flex;gap:20px;font-size:12px;color:#64748B;"><span style="color:#A5B4FC;">● Certified Dataset</span><span>{len(df):,} Validated Transactions</span><span>Confidential · Boardroom Ready</span></div></div>''',
-        "notes": f"Welcome everyone. Today we are reviewing our executive performance report for {report_title}. We will walk through our high-level KPIs, seasonal trends, category margin health, and strategic growth priorities."
+        "notes": speaker_notes.get("slide_1", f"Welcome everyone. Today we are reviewing our executive performance report for {report_title}. We will walk through our high-level KPIs, seasonal trends, category margin health, and strategic growth priorities.")
     },
     {
         "num": "02",
@@ -779,7 +824,7 @@ slides = [
         "icon": "📌",
         "tag": "FINANCIAL HIGHLIGHTS · SLIDE 02",
         "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">GROSS REVENUE</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">↑ {mom_avg:.1f}% Avg MoM</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">NET PROFIT</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{profit_str}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">{profit_pill}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">PROFIT MARGIN</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{margin_str}</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">{margin_pill}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">ORDER VOLUME</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">AOV: {fmt(avg_order_val)}</div></div></div><div style="background:#0E131F;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: Gross revenue closed at {fmt(total_revenue)} with healthy margin retention at {margin_str}, indicating strong pricing power and controlled fulfillment costs.</div></div>''',
-        "notes": f"Slide 2 outlines our bottom-line numbers. Net profit reached {profit_str} on {fmt(total_revenue)} of gross revenue. With an average order value of {fmt(avg_order_val)}, our {margin_str} margins give us substantial headroom to invest in marketing."
+        "notes": speaker_notes.get("slide_2", f"Slide 2 outlines our bottom-line numbers. Net profit reached {profit_str} on {fmt(total_revenue)} of gross revenue. With an average order value of {fmt(avg_order_val)}, our {margin_str} margins give us substantial headroom to invest in marketing.")
     },
     {
         "num": "03",
@@ -787,7 +832,7 @@ slides = [
         "icon": "📈",
         "tag": "MOMENTUM & SEASONALITY · SLIDE 03",
         "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Annual Trajectory & Peak Analysis</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;"><div style="font-size:11px;color:#38BDF8;font-weight:700;text-transform:uppercase;">🏆 Annual High-Water Mark</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{best_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Highest monthly revenue concentration. Driven by accelerated consumer demand and promotional alignment.</p></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;"><div style="font-size:11px;color:#F87171;font-weight:700;text-transform:uppercase;">⚠️ Seasonal Contraction Window</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{worst_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Softest period recorded. Represents our primary opportunity for strategic counter-cyclical campaigns.</p></div></div><div style="background:#0E131F;border-left:3px solid #38BDF8;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Executive Guidance: Ramp up supply chain readiness 45 days prior to {best_month} to avoid stock-outs.</div></div>''',
-        "notes": f"Looking at seasonality on slide 3: our peak performance hit in {best_month}. Conversely, {worst_month} showed our seasonal trough. We recommend timing next year's promotional budget to hedge this exact slow period."
+        "notes": speaker_notes.get("slide_3", f"Looking at seasonality on slide 3: our peak performance hit in {best_month}. Conversely, {worst_month} showed our seasonal trough. We recommend timing next year's promotional budget to hedge this exact slow period.")
     },
     {
         "num": "04",
@@ -795,15 +840,15 @@ slides = [
         "icon": "🏆",
         "tag": "PORTFOLIO MIX · SLIDE 04",
         "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Product Category & Margin Contribution</div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:16px;font-weight:800;color:#F8FAFC;">Top Category: {top_cat}</span><span style="font-size:12px;font-weight:700;color:#34D399;background:rgba(16,185,129,0.12);padding:4px 10px;border-radius:12px;">{margin_str} Avg Margin</span></div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.6;">{top_cat} accounts for the single largest revenue and profit contribution in our portfolio. Unit velocity is supported by high customer retention.</p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#0E131F;border-left:3px solid #C084FC;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Lead SKU Focus:</strong> Prioritize safety stock in top 5 product variants to meet consistent reorder volume.</div><div style="background:#0E131F;border-left:3px solid #FBBF24;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Margin Expansion:</strong> Explore bundle pricing to lift lower-velocity catalog items.</div></div></div>''',
-        "notes": f"On slide 4, {top_cat} is our clear anchor category. It produces the bulk of our gross margin. Our recommendation here is to double down on inventory depth for our top 5 SKUs while reviewing cost structures for trailing categories."
+        "notes": speaker_notes.get("slide_4", f"On slide 4, {top_cat} is our clear anchor category. It produces the bulk of our gross margin. Our recommendation here is to double down on inventory depth for our top 5 SKUs while reviewing cost structures for trailing categories.")
     },
     {
         "num": "05",
         "name": "Strategic Recommendations",
         "icon": "📍",
         "tag": "ACTION PLAN · SLIDE 05",
-        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Strategic Priorities & Next Steps</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #6366F1;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;">1. Regional Scale</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Expand ad budget and distribution in <strong>{top_region}</strong>, our highest revenue region.</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #34D399;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#34D399;text-transform:uppercase;">2. Margin Defense</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Maintain our <strong>{margin_str}</strong> profit margin threshold by auditing supplier terms.</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #F87171;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#F87171;text-transform:uppercase;">3. Seasonality Bridge</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Deploy promotional incentives to elevate revenue during the <strong>{worst_month}</strong> dip.</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #FBBF24;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#FBBF24;text-transform:uppercase;">4. Basket Optimization</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Introduce SKU cross-sells to push average order value beyond <strong>{fmt(avg_order_val)}</strong>.</div></div></div></div>''',
-        "notes": f"Finally, slide 5 gives leadership four immediate action items: First, capture more market share in {top_region}; second, protect our {margin_str} margins; third, launch campaigns to lift {worst_month}; and fourth, test bundle add-ons to increase our {fmt(avg_order_val)} average order value."
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Strategic Priorities & Next Steps</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">{recs_grid_html}</div></div>''',
+        "notes": speaker_notes.get("slide_5", f"Finally, slide 5 gives leadership four immediate action items: First, capture more market share in {top_region}; second, protect our {margin_str} margins; third, launch campaigns to lift {worst_month}; and fourth, test bundle add-ons to increase our {fmt(avg_order_val)} average order value.")
     },
 ]
 
@@ -857,28 +902,24 @@ with c_next:
 # ─────────────────────────────────────────────────────────────────────────────
 # EXECUTIVE TALKING POINTS
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">Automated Executive Takeaways</div>', unsafe_allow_html=True)
+ai_badge = '<span style="margin-left:12px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px;background:rgba(99,102,241,0.2);border:1px solid #6366F1;color:#A5B4FC;">✦ AI-Powered by Gemini</span>' if narrative.get("status") == "ai_generated" else '<span style="margin-left:12px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;">✦ Built-In Analysis</span>'
+
+st.markdown(f'<div class="section-title">Automated Executive Takeaways {ai_badge}</div>', unsafe_allow_html=True)
+
+takeaway_cards_html = ""
+for t in takeaways[:3]:
+    takeaway_cards_html += f'''
+    <div class="insight-card">
+        <div class="insight-title">{t.get("icon", "💡")} {t.get("title", "Key Finding")}</div>
+        <div class="insight-body">
+            {t.get("body", "")}
+        </div>
+    </div>
+    '''
 
 st.markdown(f"""
 <div class="insight-grid">
-    <div class="insight-card">
-        <div class="insight-title">📈 Peak Cycle Discovery</div>
-        <div class="insight-body">
-            <strong>{best_month}</strong> drove the highest revenue velocity. Allocate marketing budget and inventory ramp-ups 45 days prior to this window.
-        </div>
-    </div>
-    <div class="insight-card">
-        <div class="insight-title">🏆 Core Growth Driver</div>
-        <div class="insight-body">
-            <strong>{top_cat}</strong> outperforms all other product lines in revenue generation. Expand unit selection in this vertical.
-        </div>
-    </div>
-    <div class="insight-card">
-        <div class="insight-title">📍 Geographic Density</div>
-        <div class="insight-body">
-            <strong>{top_region}</strong> commands highest market share. Evaluate localized partnerships and express fulfillment in this region.
-        </div>
-    </div>
+    {takeaway_cards_html}
 </div>
 """, unsafe_allow_html=True)
 
@@ -901,7 +942,7 @@ with st.spinner("Compiling PowerPoint deck..."):
         "top_metric":  top_metric,
     }
     chart_paths = generate_all_charts(report_data, config=chart_config)
-    pptx_path   = build_presentation(report_data, chart_paths, report_title=report_title)
+    pptx_path   = build_presentation(report_data, chart_paths, report_title=report_title, narrative=narrative)
 
     with open(pptx_path, "rb") as f:
         pptx_bytes = f.read()

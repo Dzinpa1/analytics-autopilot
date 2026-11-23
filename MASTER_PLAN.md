@@ -30,10 +30,10 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
 - [x] Fix `chart_engine.py` PNG export reliability (ensure `kaleido` works cleanly or add a reliable fallback image generator so `slide_builder.py` never receives an `.html` file).
 
 ### C. AI Narrative Integration (v0.3)
-- [ ] Create `ai_narrator.py` using the Gemini API (`google-genai`) with API keys stored safely in `.env` (local) and `st.secrets` (cloud) — never hardcoded.
-- [ ] Feed ONLY the structured KPI/insights JSON from `analysis_engine.py` into Gemini to generate tailored executive takeaways, 4 strategic recommendations, and slide-by-slide speaker notes.
-- [ ] Keep our existing deterministic template text as an automatic fallback if the API key is missing or the API call fails.
-- [ ] Cache AI responses in `st.session_state` so changing chart styles or clicking slide tabs does NOT re-trigger paid Gemini API calls.
+- [x] Create `ai_narrator.py` using the Gemini API (`google-genai`) with API keys stored safely in `.env` (local) and `st.secrets` (cloud) — never hardcoded.
+- [x] Feed ONLY the structured KPI/insights JSON from `analysis_engine.py` into Gemini to generate tailored executive takeaways, 4 strategic recommendations, and slide-by-slide speaker notes.
+- [x] Keep our existing deterministic template text as an automatic fallback if the API key is missing or the API call fails.
+- [x] Cache AI responses in `st.session_state` so changing chart styles or clicking slide tabs does NOT re-trigger paid Gemini API calls.
 
 ### D. SaaS-Ready Concurrency, Branding & Deployment
 - [ ] Replace the shared `output/` directory in `chart_engine.py` and `slide_builder.py` with `tempfile.TemporaryDirectory()` (or session-scoped paths) so simultaneous users never overwrite each other's charts/decks.

@@ -126,7 +126,7 @@ def slide_kpis(prs, kpis, insights):
 
 
 # ── Slide 3: Monthly Trend ────────────────────────────────────────────────────
-def slide_trend(prs, chart_path, insights):
+def slide_trend(prs, chart_path, insights, note: str = None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_rect(slide, 0, 0, 13.33, 1.0, C_BLUE)
     _add_textbox(slide, "Monthly Revenue & Profit Trend",
@@ -138,16 +138,17 @@ def slide_trend(prs, chart_path, insights):
     _add_rect(slide, 0.3, 5.75, 12.7, 1.55, C_LIGHT)
     _add_textbox(slide, "Speaker Notes:",
                  0.5, 5.82, 12, 0.35, size=9, bold=True, color=C_GRAY)
-    note = (f"This chart shows monthly Revenue (blue) and Profit (green) for 2024. "
-            f"Our peak revenue month was {insights['best_month']}, while {insights['worst_month']} "
-            f"recorded the lowest performance. We should investigate seasonal drivers and ensure "
-            f"inventory and campaigns are aligned with our peak months next year.")
+    if not note:
+        note = (f"This chart shows monthly Revenue (blue) and Profit (green) for 2024. "
+                f"Our peak revenue month was {insights['best_month']}, while {insights['worst_month']} "
+                f"recorded the lowest performance. We should investigate seasonal drivers and ensure "
+                f"inventory and campaigns are aligned with our peak months next year.")
     _add_textbox(slide, note, 0.5, 6.15, 12.5, 1.1, size=10, color=C_DARK)
     return slide
 
 
 # ── Slide 4: Category & Product ───────────────────────────────────────────────
-def slide_category_products(prs, chart_cat, chart_prod, insights):
+def slide_category_products(prs, chart_cat, chart_prod, insights, note: str = None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_rect(slide, 0, 0, 13.33, 1.0, C_PURPLE)
     _add_textbox(slide, "Category Performance & Top Products",
@@ -159,16 +160,17 @@ def slide_category_products(prs, chart_cat, chart_prod, insights):
     _add_rect(slide, 0.15, 5.2, 12.7, 2.1, C_LIGHT)
     _add_textbox(slide, "Speaker Notes:",
                  0.4, 5.28, 12, 0.35, size=9, bold=True, color=C_GRAY)
-    note = (f"{insights['top_category']} leads all categories by revenue. "
-            f"Focus on expanding the product range within this category and "
-            f"investigate whether lower-margin categories can be optimized on the cost side. "
-            f"The top 5 products should be prioritised in restocking and marketing campaigns.")
+    if not note:
+        note = (f"{insights['top_category']} leads all categories by revenue. "
+                f"Focus on expanding the product range within this category and "
+                f"investigate whether lower-margin categories can be optimized on the cost side. "
+                f"The top 5 products should be prioritised in restocking and marketing campaigns.")
     _add_textbox(slide, note, 0.4, 5.6, 12.5, 1.5, size=10, color=C_DARK)
     return slide
 
 
 # ── Slide 5: Regional Insights & Recommendations ─────────────────────────────
-def slide_region_recommendations(prs, chart_region, insights):
+def slide_region_recommendations(prs, chart_region, insights, recs: list = None, note: str = None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_rect(slide, 0, 0, 13.33, 1.0, C_GREEN)
     _add_textbox(slide, "Regional Revenue & Strategic Recommendations",
@@ -177,13 +179,14 @@ def slide_region_recommendations(prs, chart_region, insights):
     slide.shapes.add_picture(chart_region, Inches(0.2), Inches(1.1),
                               Inches(5.8), Inches(5.5))
 
-    recs = [
-        ("📍  Top Region",    f"{insights['top_region']} leads in revenue — prioritize this region for new product launches."),
-        ("🛒  Best Channel",  f"{insights['top_channel']} is the dominant sales channel. Invest in UX/conversion optimization here."),
-        ("📈  Growth Driver", f"Focus on upsell campaigns during peak months ({insights['best_month']}) for maximum impact."),
-        ("⚠️   Weak Period",  f"Revenue dips in {insights['worst_month']}. Consider targeted promotions or bundle deals during this period."),
-    ]
-    for i, (title, body) in enumerate(recs):
+    if not recs:
+        recs = [
+            ("📍  Top Region",    f"{insights['top_region']} leads in revenue — prioritize this region for new product launches."),
+            ("🛒  Best Channel",  f"{insights['top_channel']} is the dominant sales channel. Invest in UX/conversion optimization here."),
+            ("📈  Growth Driver", f"Focus on upsell campaigns during peak months ({insights['best_month']}) for maximum impact."),
+            ("⚠️   Weak Period",  f"Revenue dips in {insights['worst_month']}. Consider targeted promotions or bundle deals during this period."),
+        ]
+    for i, (title, body) in enumerate(recs[:4]):
         top = 1.2 + i * 1.5
         _add_rect(slide, 6.4, top, 6.7, 1.3, C_LIGHT)
         _add_textbox(slide, title, 6.6, top + 0.08, 6.4, 0.38, size=11, bold=True, color=C_BLUE)
@@ -193,7 +196,7 @@ def slide_region_recommendations(prs, chart_region, insights):
 
 
 # ── Master builder ─────────────────────────────────────────────────────────────
-def build_presentation(report_data: dict, chart_paths: dict, report_title: str = "Analytics Executive Report") -> str:
+def build_presentation(report_data: dict, chart_paths: dict, report_title: str = "Analytics Executive Report", narrative: dict = None) -> str:
     prs = Presentation()
     prs.slide_width  = Inches(13.33)
     prs.slide_height = Inches(7.5)
@@ -201,12 +204,20 @@ def build_presentation(report_data: dict, chart_paths: dict, report_title: str =
     kpis    = report_data["kpis"]
     ins     = report_data["insights"]
 
+    notes = narrative.get("speaker_notes", {}) if narrative else {}
+    custom_recs = None
+    if narrative and "recommendations" in narrative:
+        custom_recs = [
+            (f"{r.get('tag', '')} · {r.get('title', '')}".strip(' ·'), r.get("body", ""))
+            for r in narrative["recommendations"]
+        ]
+
     print("📝  Building slide deck...")
     slide_title(prs, report_name=report_title)
     slide_kpis(prs, kpis, ins)
-    slide_trend(prs, chart_paths["monthly_trend"], ins)
-    slide_category_products(prs, chart_paths["category"], chart_paths["top_products"], ins)
-    slide_region_recommendations(prs, chart_paths["region"], ins)
+    slide_trend(prs, chart_paths["monthly_trend"], ins, note=notes.get("slide_3"))
+    slide_category_products(prs, chart_paths["category"], chart_paths["top_products"], ins, note=notes.get("slide_4"))
+    slide_region_recommendations(prs, chart_paths["region"], ins, recs=custom_recs, note=notes.get("slide_5"))
 
     out_path = os.path.join(OUTPUT_DIR, "Analytics_Report.pptx")
     prs.save(out_path)
