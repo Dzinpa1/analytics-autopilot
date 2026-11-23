@@ -10,11 +10,12 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
   3. **Explain the "Why" Simply:** Briefly explain what each change does and why we are doing it in plain English so I understand every line of my codebase and can defend it in interviews.
   4. **Proactively Spot Risks & Audit Yourself:** Always think critically like a senior engineer—spot edge cases, API key leaks, messy CSV crashes, and multi-user concurrency issues before they happen, and update checkboxes `[x]` in `MASTER_PLAN.md` as we complete them.
 
-## 2. Core Architecture Rules
+## 2. Core Architecture & Product Differentiation Rules
+- **Escaping the "ChatGPT Trap" (Opinionated Workflows):** Generic "upload any CSV for generic AI insights" tools lose to ChatGPT. We differentiate through: (1) 100% deterministic math accuracy, (2) executive-ready branded PowerPoint slide design, and (3) selectable **Report Modes** tailored to specific business workflows (Sales & Retail, Marketing Campaign ROI, Operations & Expenses).
 - **Python is the Backbone:** `analysis_engine.py` (`pandas`) computes 100% of KPIs, trends, and rankings deterministically. `chart_engine.py` (`Plotly` + `kaleido`) renders PNGs, and `slide_builder.py` (`python-pptx`) builds the deck.
 - **Single Source of Truth:** `app.py` must delegate data cleaning and KPI math to `analysis_engine.py` rather than duplicating `groupby` logic inside the UI file.
 - **AI is the Smart Narrator (Never the Math Engine):**
-  - Pass ONLY the verified KPI/summary dictionary from `analysis_engine.py` to the **Gemini API** (`google-genai`) so it generates executive takeaways, strategic recommendations, and speaker notes without ever hallucinating math or exposing raw user rows.
+  - Pass ONLY the verified KPI/summary dictionary from `analysis_engine.py` (plus the selected Report Mode) to the **Gemini API** (`google-genai`) so it generates role-specific executive takeaways, strategic recommendations, and speaker notes without ever hallucinating math or exposing raw user rows.
 
 ## 3. PHASE 1: Streamlit Beta (CV & Portfolio Ready MVP)
 *Goal: A crash-proof, AI-powered live web app for my CV, LinkedIn, and 10–20 beta testers.*
@@ -35,7 +36,8 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
 - [x] Keep our existing deterministic template text as an automatic fallback if the API key is missing or the API call fails.
 - [x] Cache AI responses in `st.session_state` so changing chart styles or clicking slide tabs does NOT re-trigger paid Gemini API calls.
 
-### D. SaaS-Ready Concurrency, Branding & Deployment
+### D. Niche Differentiation, Concurrency & Deployment
+- [ ] Add a **"Report Mode" selector** in `app.py` (`Sales & Retail Performance`, `Marketing & Ad Campaign ROI`, `Operations & Expense Tracker`) that adapts KPI labels in `analysis_engine.py`, prompt framing in `ai_narrator.py`, and slide titles in `slide_builder.py`.
 - [x] Replace the shared `output/` directory in `chart_engine.py` and `slide_builder.py` with `tempfile.TemporaryDirectory()` (or session-scoped paths) so simultaneous users never overwrite each other's charts/decks.
 - [x] Add Custom Branding v0.2 (optional company logo upload + primary accent color picker passed into `slide_builder.py`).
 - [ ] Deploy live to **Streamlit Community Cloud** and share with 10–15 beta testers for real-world feedback.
