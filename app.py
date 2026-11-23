@@ -416,12 +416,20 @@ def fcol(candidates):
             if c.lower() in col.lower(): return col
     return cols[0]
 
+def fcol_opt(candidates):
+    for c in candidates:
+        for col in cols:
+            if c.lower() in col.lower(): return col
+    return "None / Not Available"
+
 date_col    = fcol(["date","time","day","month"])
 revenue_col = fcol(["revenue","sales","amount","income","total"])
-profit_col  = fcol(["profit","margin","net"])
-cost_col    = fcol(["cost","expense","cogs"])
+profit_col  = fcol_opt(["profit","margin","net"])
+cost_col    = fcol_opt(["cost","expense","cogs"])
 cat_col     = fcol(["category","type","segment"])
 region_col  = fcol(["region","area","zone","location"])
+
+opt_cols = ["None / Not Available"] + cols
 
 # Column mapping collapse
 with st.expander("⚙️ Verify Auto-Mapped Columns", expanded=False):
@@ -430,8 +438,8 @@ with st.expander("⚙️ Verify Auto-Mapped Columns", expanded=False):
         date_col    = st.selectbox("Date Column", cols, index=cols.index(date_col))
         revenue_col = st.selectbox("Revenue Column", cols, index=cols.index(revenue_col))
     with mc2:
-        profit_col  = st.selectbox("Profit Column", cols, index=cols.index(profit_col))
-        cost_col    = st.selectbox("Cost Column", cols, index=cols.index(cost_col))
+        profit_col  = st.selectbox("Profit Column (Optional)", opt_cols, index=opt_cols.index(profit_col))
+        cost_col    = st.selectbox("Cost Column (Optional)", opt_cols, index=opt_cols.index(cost_col))
     with mc3:
         cat_col     = st.selectbox("Category Column", cols, index=cols.index(cat_col))
         region_col  = st.selectbox("Region Column", cols, index=cols.index(region_col))
@@ -444,21 +452,26 @@ from analysis_engine import build_report_from_df
 col_mapping = {
     "date": date_col,
     "revenue": revenue_col,
-    "profit": profit_col,
-    "cost": cost_col,
+    "profit": profit_col if profit_col != "None / Not Available" else None,
+    "cost": cost_col if cost_col != "None / Not Available" else None,
     "category": cat_col,
     "region": region_col,
     "product": "Product" if "Product" in df.columns else cat_col,
 }
 
-report_data = build_report_from_df(df, mapping=col_mapping)
+try:
+    report_data = build_report_from_df(df, mapping=col_mapping)
+except Exception as e:
+    st.error(f"⚠️ **Could not process this spreadsheet:** {str(e)}\n\nPlease ensure your Date and Revenue columns contain valid values.")
+    st.stop()
 
-kpis     = report_data["kpis"]
-monthly  = report_data["monthly"]
-category = report_data["category"]
+kpis      = report_data["kpis"]
+monthly   = report_data["monthly"]
+category  = report_data["category"]
 region_df = report_data["region"]
-insights = report_data["insights"]
+insights  = report_data["insights"]
 
+has_profit    = kpis.get("has_profit", True)
 total_revenue = kpis["total_revenue"]
 total_profit  = kpis["total_profit"]
 total_cost    = kpis["total_cost"]
@@ -475,9 +488,22 @@ cat_col     = "Category"
 region_col  = "Region"
 
 def fmt(v):
+    if v is None: return "N/A"
     if v >= 1_000_000: return f"${v/1_000_000:.2f}M"
     elif v >= 1_000:   return f"${v/1_000:.1f}K"
     return f"${v:,.0f}"
+
+profit_display = fmt(total_profit) if has_profit and total_profit is not None else "Not Available"
+profit_pill    = "After All Costs" if has_profit and total_profit is not None else "Revenue Mode"
+
+if has_profit and profit_margin is not None:
+    margin_display = f"{profit_margin:.1f}%"
+    margin_pill    = "Target: >35.0%" if profit_margin >= 35.0 else "Below 35% Target"
+    margin_pill_class = "pill-purple" if profit_margin >= 35.0 else "pill-amber"
+else:
+    margin_display = "N/A"
+    margin_pill    = "Profit Unmapped"
+    margin_pill_class = "pill-blue"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # KPI CARDS (Linear Obsidian Style)
@@ -493,13 +519,13 @@ st.markdown(f"""
     </div>
     <div class="kpi-card">
         <div class="kpi-label">Net Profit</div>
-        <div class="kpi-value">{fmt(total_profit)}</div>
-        <div class="kpi-pill pill-green">After All Costs</div>
+        <div class="kpi-value">{profit_display}</div>
+        <div class="kpi-pill pill-green">{profit_pill}</div>
     </div>
     <div class="kpi-card">
         <div class="kpi-label">Profit Margin</div>
-        <div class="kpi-value">{profit_margin:.1f}%</div>
-        <div class="kpi-pill pill-purple">Target: >35.0%</div>
+        <div class="kpi-value">{margin_display}</div>
+        <div class="kpi-pill {margin_pill_class}">{margin_pill}</div>
     </div>
     <div class="kpi-card">
         <div class="kpi-label">Total Volume</div>
@@ -553,14 +579,18 @@ with ch1:
             marker=dict(size=7, color="#6366F1"),
             fill="tozeroy", fillcolor="rgba(99, 102, 241, 0.12)",
         ))
-        fig1.add_trace(go.Scatter(
-            x=monthly["Month_Label"], y=monthly["Profit"],
-            mode="lines+markers", name="Profit",
-            line=dict(color="#34D399", width=2.5),
-            marker=dict(size=6, color="#34D399"),
-        ))
+        if has_profit:
+            fig1.add_trace(go.Scatter(
+                x=monthly["Month_Label"], y=monthly["Profit"],
+                mode="lines+markers", name="Profit",
+                line=dict(color="#34D399", width=2.5),
+                marker=dict(size=6, color="#34D399"),
+            ))
+            chart1_title = "Revenue & Profit Trajectory (Line)"
+        else:
+            chart1_title = "Monthly Revenue Trajectory (Line)"
         fig1.update_yaxes(tickprefix="$", tickformat=",.0f")
-        st.plotly_chart(style_chart(fig1, "Revenue & Profit Trajectory (Line)"), use_container_width=True)
+        st.plotly_chart(style_chart(fig1, chart1_title), use_container_width=True)
     elif trend_style == "MoM Growth %":
         growth_colors = ["#34D399" if v >= 0 else "#F87171" for v in monthly["MoM_Growth"].fillna(0)]
         fig1.add_trace(go.Bar(
@@ -576,13 +606,17 @@ with ch1:
             x=monthly["Month_Label"], y=monthly["Revenue"],
             name="Revenue", marker_color="#6366F1", opacity=0.92
         ))
-        fig1.add_trace(go.Bar(
-            x=monthly["Month_Label"], y=monthly["Profit"],
-            name="Profit", marker_color="#34D399", opacity=0.92
-        ))
-        fig1.update_layout(barmode="group")
+        if has_profit:
+            fig1.add_trace(go.Bar(
+                x=monthly["Month_Label"], y=monthly["Profit"],
+                name="Profit", marker_color="#34D399", opacity=0.92
+            ))
+            fig1.update_layout(barmode="group")
+            chart1_title = "Monthly Revenue vs Net Profit"
+        else:
+            chart1_title = "Monthly Revenue Performance"
         fig1.update_yaxes(tickprefix="$", tickformat=",.0f")
-        st.plotly_chart(style_chart(fig1, "Monthly Revenue vs Net Profit"), use_container_width=True)
+        st.plotly_chart(style_chart(fig1, chart1_title), use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with ch2:
@@ -684,22 +718,25 @@ with ch4:
     with c4_head:
         st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Product Leaderboard</div>', unsafe_allow_html=True)
     with c4_c1:
-        top_metric = st.selectbox("Metric", ["Revenue", "Profit", "Quantity"], key="ctrl_metric", label_visibility="collapsed")
+        metric_options = ["Revenue", "Profit", "Quantity"] if has_profit else ["Revenue", "Quantity"]
+        top_metric = st.selectbox("Metric", metric_options, key="ctrl_metric", label_visibility="collapsed")
     with c4_c2:
         top_n = st.selectbox("Count", [5, 10], key="ctrl_count", label_visibility="collapsed")
 
-    # Aggregate dynamically
-    prod_col_name = "Product" if "Product" in df.columns else cat_col
-    agg_dict = {revenue_col: "sum", profit_col: "sum"}
-    if "Quantity" in df.columns:
-        agg_dict["Quantity"] = "sum"
+    # Aggregate dynamically using normalized clean_df
+    clean_df = report_data.get("df", df)
+    prod_col_name = "Product" if "Product" in clean_df.columns else ("Category" if "Category" in clean_df.columns else cat_col)
 
-    prod_rank = df.groupby(prod_col_name).agg(**{
-        "Revenue": (revenue_col, "sum"),
-        "Profit": (profit_col, "sum"),
-        "Quantity": ("Quantity", "sum") if "Quantity" in df.columns else (revenue_col, "count")
-    }).reset_index().rename(columns={prod_col_name: "Product"})
+    agg_spec = {
+        "Revenue": ("Revenue", "sum"),
+        "Quantity": ("Quantity", "sum") if "Quantity" in clean_df.columns else ("Revenue", "count")
+    }
+    if has_profit and "Profit" in clean_df.columns:
+        agg_spec["Profit"] = ("Profit", "sum")
+    else:
+        agg_spec["Profit"] = ("Revenue", lambda s: 0.0)
 
+    prod_rank = clean_df.groupby(prod_col_name).agg(**agg_spec).reset_index().rename(columns={prod_col_name: "Product"})
     prod_rank = prod_rank.sort_values(top_metric, ascending=False).head(top_n)
 
     is_curr = top_metric in ["Revenue", "Profit"]
@@ -724,6 +761,9 @@ st.markdown('<div class="section-title">Presentation Deck Preview (16:9 Widescre
 if "slide_idx" not in st.session_state:
     st.session_state.slide_idx = 0
 
+margin_str = f"{profit_margin:.1f}%" if profit_margin is not None else "N/A"
+profit_str = fmt(total_profit) if total_profit is not None else "N/A"
+
 slides = [
     {
         "num": "01",
@@ -738,8 +778,8 @@ slides = [
         "name": "KPI Matrix",
         "icon": "📌",
         "tag": "FINANCIAL HIGHLIGHTS · SLIDE 02",
-        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">GROSS REVENUE</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">↑ {mom_avg:.1f}% Avg MoM</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">NET PROFIT</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{fmt(total_profit)}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">After All COGS</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">PROFIT MARGIN</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{profit_margin:.1f}%</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">Target >35% Met</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">ORDER VOLUME</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">AOV: {fmt(avg_order_val)}</div></div></div><div style="background:#0E131F;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: Gross revenue closed at {fmt(total_revenue)} with healthy margin retention at {profit_margin:.1f}%, indicating strong pricing power and controlled fulfillment costs.</div></div>''',
-        "notes": f"Slide 2 outlines our bottom-line numbers. Net profit reached {fmt(total_profit)} on {fmt(total_revenue)} of gross revenue. With an average order value of {fmt(avg_order_val)}, our 48% margins give us substantial headroom to invest in marketing."
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">GROSS REVENUE</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">↑ {mom_avg:.1f}% Avg MoM</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">NET PROFIT</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{profit_str}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">{profit_pill}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">PROFIT MARGIN</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{margin_str}</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">{margin_pill}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">ORDER VOLUME</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">AOV: {fmt(avg_order_val)}</div></div></div><div style="background:#0E131F;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: Gross revenue closed at {fmt(total_revenue)} with healthy margin retention at {margin_str}, indicating strong pricing power and controlled fulfillment costs.</div></div>''',
+        "notes": f"Slide 2 outlines our bottom-line numbers. Net profit reached {profit_str} on {fmt(total_revenue)} of gross revenue. With an average order value of {fmt(avg_order_val)}, our {margin_str} margins give us substantial headroom to invest in marketing."
     },
     {
         "num": "03",
@@ -754,7 +794,7 @@ slides = [
         "name": "Category Dominance",
         "icon": "🏆",
         "tag": "PORTFOLIO MIX · SLIDE 04",
-        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Product Category & Margin Contribution</div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:16px;font-weight:800;color:#F8FAFC;">Top Category: {top_cat}</span><span style="font-size:12px;font-weight:700;color:#34D399;background:rgba(16,185,129,0.12);padding:4px 10px;border-radius:12px;">{profit_margin:.1f}% Avg Margin</span></div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.6;">{top_cat} accounts for the single largest revenue and profit contribution in our portfolio. Unit velocity is supported by high customer retention.</p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#0E131F;border-left:3px solid #C084FC;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Lead SKU Focus:</strong> Prioritize safety stock in top 5 product variants to meet consistent reorder volume.</div><div style="background:#0E131F;border-left:3px solid #FBBF24;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Margin Expansion:</strong> Explore bundle pricing to lift lower-velocity catalog items.</div></div></div>''',
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Product Category & Margin Contribution</div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:16px;font-weight:800;color:#F8FAFC;">Top Category: {top_cat}</span><span style="font-size:12px;font-weight:700;color:#34D399;background:rgba(16,185,129,0.12);padding:4px 10px;border-radius:12px;">{margin_str} Avg Margin</span></div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.6;">{top_cat} accounts for the single largest revenue and profit contribution in our portfolio. Unit velocity is supported by high customer retention.</p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#0E131F;border-left:3px solid #C084FC;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Lead SKU Focus:</strong> Prioritize safety stock in top 5 product variants to meet consistent reorder volume.</div><div style="background:#0E131F;border-left:3px solid #FBBF24;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Margin Expansion:</strong> Explore bundle pricing to lift lower-velocity catalog items.</div></div></div>''',
         "notes": f"On slide 4, {top_cat} is our clear anchor category. It produces the bulk of our gross margin. Our recommendation here is to double down on inventory depth for our top 5 SKUs while reviewing cost structures for trailing categories."
     },
     {
@@ -762,8 +802,8 @@ slides = [
         "name": "Strategic Recommendations",
         "icon": "📍",
         "tag": "ACTION PLAN · SLIDE 05",
-        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Strategic Priorities & Next Steps</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #6366F1;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;">1. Regional Scale</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Expand ad budget and distribution in <strong>{top_region}</strong>, our highest revenue region.</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #34D399;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#34D399;text-transform:uppercase;">2. Margin Defense</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Maintain our <strong>{profit_margin:.1f}%</strong> profit margin threshold by auditing supplier terms.</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #F87171;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#F87171;text-transform:uppercase;">3. Seasonality Bridge</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Deploy promotional incentives to elevate revenue during the <strong>{worst_month}</strong> dip.</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #FBBF24;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#FBBF24;text-transform:uppercase;">4. Basket Optimization</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Introduce SKU cross-sells to push average order value beyond <strong>{fmt(avg_order_val)}</strong>.</div></div></div></div>''',
-        "notes": f"Finally, slide 5 gives leadership four immediate action items: First, capture more market share in {top_region}; second, protect our 48% margins; third, launch campaigns to lift {worst_month}; and fourth, test bundle add-ons to increase our {fmt(avg_order_val)} average order value."
+        "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">Strategic Priorities & Next Steps</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #6366F1;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;">1. Regional Scale</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Expand ad budget and distribution in <strong>{top_region}</strong>, our highest revenue region.</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #34D399;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#34D399;text-transform:uppercase;">2. Margin Defense</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Maintain our <strong>{margin_str}</strong> profit margin threshold by auditing supplier terms.</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #F87171;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#F87171;text-transform:uppercase;">3. Seasonality Bridge</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Deploy promotional incentives to elevate revenue during the <strong>{worst_month}</strong> dip.</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid #FBBF24;border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:#FBBF24;text-transform:uppercase;">4. Basket Optimization</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;">Introduce SKU cross-sells to push average order value beyond <strong>{fmt(avg_order_val)}</strong>.</div></div></div></div>''',
+        "notes": f"Finally, slide 5 gives leadership four immediate action items: First, capture more market share in {top_region}; second, protect our {margin_str} margins; third, launch campaigns to lift {worst_month}; and fourth, test bundle add-ons to increase our {fmt(avg_order_val)} average order value."
     },
 ]
 

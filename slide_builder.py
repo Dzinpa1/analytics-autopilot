@@ -88,10 +88,13 @@ def slide_kpis(prs, kpis, insights):
                  0.4, 0.2, 10, 0.75, size=24, bold=True, color=C_WHITE)
 
     # Row 1 — 4 KPI cards
+    profit_display = f"${kpis['total_profit']:,.0f}" if kpis.get("total_profit") is not None else "N/A"
+    margin_display = f"{kpis['profit_margin']}%" if kpis.get("profit_margin") is not None else "N/A"
+
     cards_r1 = [
         ("Total Revenue",   f"${kpis['total_revenue']:,.0f}",  0.3,  C_BLUE),
-        ("Total Profit",    f"${kpis['total_profit']:,.0f}",   2.65, C_GREEN),
-        ("Profit Margin",   f"{kpis['profit_margin']}%",        5.0,  C_PURPLE),
+        ("Total Profit",    profit_display,                     2.65, C_GREEN),
+        ("Profit Margin",   margin_display,                     5.0,  C_PURPLE),
         ("Total Orders",    f"{kpis['total_orders']:,}",        7.35, C_AMBER),
     ]
     for label, val, left, color in cards_r1:

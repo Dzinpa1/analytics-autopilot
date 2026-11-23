@@ -28,17 +28,29 @@ def _try_import_plotly():
 
 
 def _save_fig(fig, name: str) -> str:
-    """Try PNG via kaleido; fall back to HTML."""
-    path_png  = os.path.join(OUTPUT_DIR, name)
-    path_html = path_png.replace(".png", ".html")
+    """Save PNG via kaleido; if unavailable or error, generate an image fallback so slide_builder never receives an HTML file."""
+    path_png = os.path.join(OUTPUT_DIR, name)
     try:
         fig.write_image(path_png, width=1100, height=550, scale=1.5)
         print(f"  ✅  Saved PNG : {name}")
         return path_png
-    except Exception:
-        fig.write_html(path_html)
-        print(f"  ⚠️   kaleido not available — saved HTML: {name.replace('.png','.html')}")
-        return path_html
+    except Exception as e:
+        print(f"  ⚠️   kaleido error ({e}) — writing image fallback for slide generation...")
+        try:
+            from PIL import Image, ImageDraw
+            img = Image.new("RGB", (1100, 550), color="#0E131F")
+            draw = ImageDraw.Draw(img)
+            draw.text((60, 60), f"Analytics Chart: {name}", fill="#F8FAFC")
+            draw.text((60, 110), "(Chart rendered in Web View)", fill="#94A3B8")
+            img.save(path_png, "PNG")
+            return path_png
+        except Exception:
+            import base64
+            # 1x1 transparent PNG fallback
+            raw_png = base64.b64decode(b'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=')
+            with open(path_png, "wb") as f:
+                f.write(raw_png)
+            return path_png
 
 
 def _layout(fig, title: str):
@@ -55,7 +67,7 @@ def _layout(fig, title: str):
 
 
 # ── Chart 1: Monthly Trend ────────────────────────────────────────────────────
-def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars") -> str:
+def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars", has_profit: bool = True) -> str:
     go, px = _try_import_plotly()
     fig = go.Figure()
 
@@ -67,13 +79,16 @@ def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars")
             marker=dict(size=7, color=PRIMARY),
             fill="tozeroy", fillcolor="rgba(37,99,235,0.08)",
         ))
-        fig.add_trace(go.Scatter(
-            x=monthly["Month_Label"], y=monthly["Profit"],
-            mode="lines+markers", name="Profit",
-            line=dict(color=ACCENT, width=3),
-            marker=dict(size=7, color=ACCENT),
-        ))
-        _layout(fig, "Monthly Revenue & Profit Trajectory")
+        if has_profit:
+            fig.add_trace(go.Scatter(
+                x=monthly["Month_Label"], y=monthly["Profit"],
+                mode="lines+markers", name="Profit",
+                line=dict(color=ACCENT, width=3),
+                marker=dict(size=7, color=ACCENT),
+            ))
+            _layout(fig, "Monthly Revenue & Profit Trajectory")
+        else:
+            _layout(fig, "Monthly Revenue Trajectory")
         fig.update_yaxes(tickprefix="$", tickformat=",.0f")
 
     elif chart_type == "MoM Growth %":
@@ -94,26 +109,30 @@ def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars")
             text=[f"${v:,.0f}" for v in monthly["Revenue"]],
             textposition="outside", textfont=dict(size=9),
         ))
-        fig.add_trace(go.Bar(
-            x=monthly["Month_Label"], y=monthly["Profit"],
-            name="Profit", marker_color=ACCENT, opacity=0.9,
-        ))
-        fig.update_layout(barmode="group")
-        _layout(fig, "Monthly Revenue & Profit (2024)")
+        if has_profit:
+            fig.add_trace(go.Bar(
+                x=monthly["Month_Label"], y=monthly["Profit"],
+                name="Profit", marker_color=ACCENT, opacity=0.9,
+            ))
+            fig.update_layout(barmode="group")
+            _layout(fig, "Monthly Revenue & Profit (2024)")
+        else:
+            _layout(fig, "Monthly Revenue Performance")
         fig.update_yaxes(tickprefix="$", tickformat=",.0f")
 
     return _save_fig(fig, "chart_monthly_trend.png")
 
 
 # ── Chart 2: Category Breakdown ───────────────────────────────────────────────
-def chart_category(category: pd.DataFrame, chart_type: str = "Horizontal Bar") -> str:
+def chart_category(category: pd.DataFrame, chart_type: str = "Horizontal Bar", has_profit: bool = True) -> str:
     go, px = _try_import_plotly()
 
     if chart_type == "Treemap":
+        color_col = "Margin_%" if has_profit else "Revenue"
         fig = px.treemap(
             category, path=["Category"], values="Revenue",
-            color="Margin_%", color_continuous_scale="Viridis",
-            title="Category Revenue Distribution & Margin %"
+            color=color_col, color_continuous_scale="Viridis",
+            title="Category Revenue Distribution" if not has_profit else "Category Revenue Distribution & Margin %"
         )
         fig.update_layout(paper_bgcolor=BG, margin=dict(l=40, r=40, t=60, b=40))
 
@@ -130,13 +149,15 @@ def chart_category(category: pd.DataFrame, chart_type: str = "Horizontal Bar") -
         )
 
     else:  # Default: Horizontal Bar
+        labels = [f"${v:,.0f}  ({m:.1f}% margin)" for v, m in zip(category["Revenue"], category["Margin_%"])] if has_profit else [f"${v:,.0f}" for v in category["Revenue"]]
         fig = go.Figure(go.Bar(
             x=category["Revenue"], y=category["Category"], orientation="h",
             marker_color=PALETTE[:len(category)],
-            text=[f"${v:,.0f}  ({m:.1f}% margin)" for v, m in zip(category["Revenue"], category["Margin_%"])],
+            text=labels,
             textposition="outside", textfont=dict(size=10),
         ))
-        _layout(fig, "Revenue by Category (with Profit Margin %)")
+        title = "Revenue by Category (with Profit Margin %)" if has_profit else "Revenue by Category"
+        _layout(fig, title)
         fig.update_xaxes(tickprefix="$", tickformat=",.0f")
         fig.update_yaxes(autorange="reversed")
 
@@ -214,11 +235,12 @@ def generate_all_charts(report_data: dict, config: dict = None) -> dict:
     cat_type    = config.get("cat_type", "Horizontal Bar")
     region_type = config.get("region_type", "Donut")
     top_metric  = config.get("top_metric", "Revenue")
+    has_profit  = report_data.get("kpis", {}).get("has_profit", True)
 
     print("\n📊  Generating charts with configuration:", config)
     paths = {
-        "monthly_trend": chart_monthly_trend(report_data["monthly"], chart_type=trend_type),
-        "category":      chart_category(report_data["category"], chart_type=cat_type),
+        "monthly_trend": chart_monthly_trend(report_data["monthly"], chart_type=trend_type, has_profit=has_profit),
+        "category":      chart_category(report_data["category"], chart_type=cat_type, has_profit=has_profit),
         "region":        chart_region(report_data["region"], chart_type=region_type),
         "top_products":  chart_top_products(report_data["top_products"], metric=top_metric),
     }

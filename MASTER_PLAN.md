@@ -26,8 +26,8 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
 ### B. Immediate Bug Fixes & Code Consolidation
 - [x] Pass user's custom `report_title` from `app.py` into `build_presentation()` -> `slide_title()` in `slide_builder.py` (currently hardcoded to `"2024 Annual Sales Report"`).
 - [x] Refactor `app.py` to call `analysis_engine.py` (`build_report()`) instead of duplicating KPI/groupby calculations inline.
-- [ ] Harden `analysis_engine.py` for messy real-world uploads: strip currency symbols (`$`, `GHS`, commas) before numeric conversion, handle missing `Profit`/`Cost` columns gracefully (allow "None / Not Available"), and wrap uploads in friendly `try/except` alerts.
-- [ ] Fix `chart_engine.py` PNG export reliability (ensure `kaleido` works cleanly or add a reliable fallback image generator so `slide_builder.py` never receives an `.html` file).
+- [x] Harden `analysis_engine.py` for messy real-world uploads: strip currency symbols (`$`, `GHS`, commas) before numeric conversion, handle missing `Profit`/`Cost` columns gracefully (allow "None / Not Available"), and wrap uploads in friendly `try/except` alerts.
+- [x] Fix `chart_engine.py` PNG export reliability (ensure `kaleido` works cleanly or add a reliable fallback image generator so `slide_builder.py` never receives an `.html` file).
 
 ### C. AI Narrative Integration (v0.3)
 - [ ] Create `ai_narrator.py` using the Gemini API (`google-genai`) with API keys stored safely in `.env` (local) and `st.secrets` (cloud) — never hardcoded.
