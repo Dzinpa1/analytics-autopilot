@@ -436,37 +436,43 @@ with st.expander("⚙️ Verify Auto-Mapped Columns", expanded=False):
         cat_col     = st.selectbox("Category Column", cols, index=cols.index(cat_col))
         region_col  = st.selectbox("Region Column", cols, index=cols.index(region_col))
 
-# Compute metrics
-df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-df["_month"] = df[date_col].dt.to_period("M")
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPUTE METRICS VIA ANALYSIS ENGINE (Single Source of Truth)
+# ─────────────────────────────────────────────────────────────────────────────
+from analysis_engine import build_report_from_df
 
-total_revenue = df[revenue_col].sum()
-total_profit  = df[profit_col].sum()
-total_cost    = df[cost_col].sum()
-total_orders  = len(df)
-profit_margin = (total_profit / total_revenue * 100) if total_revenue else 0
-avg_order_val = df[revenue_col].mean()
+col_mapping = {
+    "date": date_col,
+    "revenue": revenue_col,
+    "profit": profit_col,
+    "cost": cost_col,
+    "category": cat_col,
+    "region": region_col,
+    "product": "Product" if "Product" in df.columns else cat_col,
+}
 
-monthly = (df.groupby("_month")
-             .agg(Revenue=(revenue_col,"sum"), Profit=(profit_col,"sum"))
-             .reset_index())
-monthly["Month_Label"] = monthly["_month"].dt.strftime("%b %Y")
-monthly["MoM_Growth"]  = monthly["Revenue"].pct_change() * 100
+report_data = build_report_from_df(df, mapping=col_mapping)
 
-category = (df.groupby(cat_col)
-              .agg(Revenue=(revenue_col,"sum"), Profit=(profit_col,"sum"))
-              .reset_index().sort_values("Revenue", ascending=False))
-category["Margin_%"] = (category["Profit"] / category["Revenue"] * 100).round(1)
+kpis     = report_data["kpis"]
+monthly  = report_data["monthly"]
+category = report_data["category"]
+region_df = report_data["region"]
+insights = report_data["insights"]
 
-region_df = (df.groupby(region_col)
-               .agg(Revenue=(revenue_col,"sum"))
-               .reset_index().sort_values("Revenue", ascending=False))
+total_revenue = kpis["total_revenue"]
+total_profit  = kpis["total_profit"]
+total_cost    = kpis["total_cost"]
+total_orders  = kpis["total_orders"]
+profit_margin = kpis["profit_margin"]
+avg_order_val = kpis["avg_order_value"]
 
-best_month  = monthly.loc[monthly["Revenue"].idxmax(), "Month_Label"]
-worst_month = monthly.loc[monthly["Revenue"].idxmin(), "Month_Label"]
-top_cat     = category.iloc[0][cat_col]
-top_region  = region_df.iloc[0][region_col]
-mom_avg     = monthly["MoM_Growth"].mean()
+best_month  = insights["best_month"]
+worst_month = insights["worst_month"]
+top_cat     = insights["top_category"]
+top_region  = insights["top_region"]
+mom_avg     = insights["avg_mom_growth"]
+cat_col     = "Category"
+region_col  = "Region"
 
 def fmt(v):
     if v >= 1_000_000: return f"${v/1_000_000:.2f}M"
@@ -842,37 +848,8 @@ st.markdown(f"""
 st.markdown('<div class="section-title">One-Click Slide Deck Export</div>', unsafe_allow_html=True)
 
 with st.spinner("Compiling PowerPoint deck..."):
-    monthly_export = monthly.copy()
-    
-    prod_col_name = "Product" if "Product" in df.columns else cat_col
-    top_products_df = df.groupby(prod_col_name).agg(**{
-        "Revenue": (revenue_col, "sum"),
-        "Profit": (profit_col, "sum"),
-        "Quantity": ("Quantity", "sum") if "Quantity" in df.columns else (revenue_col, "count")
-    }).reset_index().rename(columns={prod_col_name: "Product"}).sort_values(top_metric, ascending=False).head(top_n)
-
-    report_data = {
-        "kpis": {
-            "total_revenue":   round(total_revenue,2),
-            "total_profit":    round(total_profit,2),
-            "total_cost":      round(total_cost,2),
-            "total_orders":    total_orders,
-            "total_units":     int(df["Quantity"].sum()) if "Quantity" in df.columns else 0,
-            "avg_order_value": round(avg_order_val,2),
-            "profit_margin":   round(profit_margin,2),
-            "return_rate":     round((df["Returned"].sum()/total_orders*100),2) if "Returned" in df.columns else 0,
-        },
-        "monthly":      monthly_export,
-        "category":     category,
-        "region":       region_df.rename(columns={region_col:"Region"}),
-        "top_products": top_products_df,
-        "channels":     pd.DataFrame({"Channel":["N/A"],"Revenue":[0],"Orders":[0],"Revenue_%":[100]}),
-        "insights": {
-            "best_month": best_month, "worst_month": worst_month,
-            "avg_mom_growth": round(mom_avg,2) if not pd.isna(mom_avg) else 0,
-            "top_category": top_cat, "top_region": top_region, "top_channel": "N/A",
-        }
-    }
+    # Synchronize user-selected top products ranking into report_data
+    report_data["top_products"] = prod_rank
 
     os.makedirs(os.path.join(os.path.dirname(__file__), "output"), exist_ok=True)
     from chart_engine   import generate_all_charts
