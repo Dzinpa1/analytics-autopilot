@@ -256,9 +256,6 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     has_mapped_cost   = False
 
     if mapping:
-        # Pre-cleanup: If mapping a source column to a target name that already exists in df
-        # (e.g. mapping 'Channel' to 'Category', but df already has an unselected 'Category' column),
-        # drop the colliding unselected column first so we never produce duplicate column names.
         target_name_map = {
             "date": "Date",
             "revenue": "Revenue",
@@ -270,21 +267,17 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
             "quantity": "Quantity",
         }
         for target, src in mapping.items():
-            if src and src != "None / Not Available" and src in clean_df.columns:
-                target_col = target_name_map.get(target.lower(), target.capitalize())
-                if target_col in clean_df.columns and src != target_col:
+            target_col = target_name_map.get(target.lower(), target.capitalize())
+            if not src or src == "None / Not Available":
+                if target_col in clean_df.columns:
                     clean_df = clean_df.drop(columns=[target_col])
-
-        rename_map = {}
-        for target, src in mapping.items():
-            if src and src != "None / Not Available" and src in clean_df.columns:
-                target_col = target_name_map.get(target.lower(), target.capitalize())
+            elif src in df.columns:
                 if target.lower() == "profit":
                     has_mapped_profit = True
                 elif target.lower() == "cost":
                     has_mapped_cost = True
-                rename_map[src] = target_col
-        clean_df = clean_df.rename(columns=rename_map)
+                # Direct assignment allows multiple targets to share the same source column without dropping one
+                clean_df[target_col] = df[src].copy()
 
     # Bulletproof guard against duplicate column names from any source
     clean_df = clean_df.loc[:, ~clean_df.columns.duplicated()]

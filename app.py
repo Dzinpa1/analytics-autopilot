@@ -579,22 +579,22 @@ if "Marketing" in report_mode:
     revenue_col = fcol(["spend","ad_spend","budget","investment","revenue","sales","cost","amount","total"])
     profit_col  = fcol_opt(["conversions","leads","acquisitions","return","profit","margin","net"])
     cost_col    = fcol_opt(["cpc","cpa","cost","expense"])
-    cat_col     = fcol(["channel","campaign","network","source","medium","category","type"])
-    region_col  = fcol(["region","country","market","geo","location","city","audience"])
+    cat_col     = fcol_opt(["channel","campaign","network","source","medium","category","type"])
+    region_col  = fcol_opt(["region","country","market","geo","location","city","audience"])
 elif "Operations" in report_mode:
     date_col    = fcol(["date","time","day","month","period"])
     revenue_col = fcol(["budget","allocated","target","total_budget","revenue","amount","total"])
     profit_col  = fcol_opt(["expense","actual","spend","cost","variance","profit"])
     cost_col    = fcol_opt(["cogs","fixed_cost","variable_cost","overhead","cost"])
-    cat_col     = fcol(["department","dept","cost_center","unit","function","category","type"])
-    region_col  = fcol(["facility","branch","site","warehouse","region","location","plant"])
+    cat_col     = fcol_opt(["department","dept","cost_center","unit","function","category","type"])
+    region_col  = fcol_opt(["facility","branch","site","warehouse","region","location","plant"])
 else:  # Sales & Retail Performance
     date_col    = fcol(["date","time","day","month"])
     revenue_col = fcol(["revenue","sales","amount","income","total"])
     profit_col  = fcol_opt(["profit","margin","net"])
     cost_col    = fcol_opt(["cost","expense","cogs"])
-    cat_col     = fcol(["category","type","segment"])
-    region_col  = fcol(["region","area","zone","location"])
+    cat_col     = fcol_opt(["category","type","segment"])
+    region_col  = fcol_opt(["region","area","zone","location"])
 
 opt_cols = ["None / Not Available"] + cols
 
@@ -609,8 +609,8 @@ with st.sidebar:
         cost_col    = st.selectbox("Cost / CPA Column", opt_cols, index=opt_cols.index(cost_col))
         cat_input_label = "Channel / Campaign" if "Marketing" in report_mode else ("Department / Unit" if "Operations" in report_mode else "Category Column")
         reg_input_label = "Market / Geo" if "Marketing" in report_mode else ("Facility / Location" if "Operations" in report_mode else "Region Column")
-        cat_col     = st.selectbox(cat_input_label, cols, index=cols.index(cat_col))
-        region_col  = st.selectbox(reg_input_label, cols, index=cols.index(region_col))
+        cat_col     = st.selectbox(cat_input_label, opt_cols, index=opt_cols.index(cat_col))
+        region_col  = st.selectbox(reg_input_label, opt_cols, index=opt_cols.index(region_col))
 
     with st.expander("🤖 AI Intelligence (Gemini)", expanded=False):
         gemini_api_key_input = st.text_input(
@@ -639,9 +639,9 @@ col_mapping = {
     "revenue": revenue_col,
     "profit": profit_col if profit_col != "None / Not Available" else None,
     "cost": cost_col if cost_col != "None / Not Available" else None,
-    "category": cat_col,
-    "region": region_col,
-    "product": "Product" if "Product" in df.columns else cat_col,
+    "category": cat_col if cat_col != "None / Not Available" else None,
+    "region": region_col if region_col != "None / Not Available" else None,
+    "product": "Product" if "Product" in df.columns else (cat_col if cat_col != "None / Not Available" else None),
 }
 
 try:
