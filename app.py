@@ -627,7 +627,7 @@ with st.sidebar:
         logo_file = st.file_uploader("Brand Logo (.png, .jpg)", type=["png", "jpg", "jpeg"], help="Optional: Upload company logo for slide headers and cover.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# COMPUTE METRICS VIA ANALYSIS ENGINE (Single Source of Truth)
+# COMPUTE METRICS VIA ANALYSIS ENGINE (Single Source of Truth, Cached)
 # ─────────────────────────────────────────────────────────────────────────────
 import importlib
 import analysis_engine
@@ -644,8 +644,12 @@ col_mapping = {
     "product": "Product" if "Product" in df.columns else (cat_col if cat_col != "None / Not Available" else None),
 }
 
+@st.cache_data(show_spinner=False)
+def get_cached_report(_df, mapping, mode):
+    return build_report_from_df(_df, mapping=mapping, report_mode=mode)
+
 try:
-    report_data = build_report_from_df(df, mapping=col_mapping, report_mode=report_mode)
+    report_data = get_cached_report(df, col_mapping, report_mode)
 except Exception as e:
     st.error(f"⚠️ **Could not process this spreadsheet:** {str(e)}\n\nPlease ensure your Date and Revenue columns contain valid values.")
     st.stop()
@@ -1163,7 +1167,7 @@ with tab_deck:
 
 
     # ─────────────────────────────────────────────────────────────────────────────
-    # POWERPOINT EXPORT PIPELINE (Session-Scoped Concurrency via tempfile & Cached)
+    # POWERPOINT EXPORT PIPELINE (On-Demand & Cached for Instant Carousel Transitions)
     # ─────────────────────────────────────────────────────────────────────────────
     st.markdown('<div class="section-title">One-Click Slide Deck Export</div>', unsafe_allow_html=True)
 
@@ -1186,55 +1190,63 @@ with tab_deck:
         report_mode,
     )
 
-    if pptx_cache_key in st.session_state.pptx_cache:
-        pptx_bytes = st.session_state.pptx_cache[pptx_cache_key]
-    else:
-        with st.spinner("Compiling PowerPoint deck..."):
-            import tempfile
-            from chart_engine   import generate_all_charts
-            from slide_builder  import build_presentation
-
-            # Synchronize user-selected top products ranking into report_data
-            report_data["top_products"] = prod_rank
-
-            chart_config = {
-                "trend_type":  trend_style,
-                "cat_type":    cat_style,
-                "region_type": region_style,
-                "top_metric":  top_metric,
-            }
-
-            # Isolated temporary directory ensures simultaneous users never overwrite each other's charts/decks
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                logo_path = None
-                if 'logo_file' in locals() and logo_file:
-                    logo_ext = logo_file.name.split('.')[-1]
-                    logo_path = os.path.join(tmp_dir, f"brand_logo.{logo_ext}")
-                    with open(logo_path, "wb") as f:
-                        f.write(logo_file.getbuffer())
-
-                chart_paths = generate_all_charts(report_data, config=chart_config, output_dir=tmp_dir)
-                pptx_path   = build_presentation(
-                    report_data, chart_paths,
-                    report_title=report_title,
-                    narrative=narrative,
-                    output_dir=tmp_dir,
-                    brand_color=brand_color if 'brand_color' in locals() else None,
-                    logo_path=logo_path
-                )
-                with open(pptx_path, "rb") as f:
-                    pptx_bytes = f.read()
-
-            st.session_state.pptx_cache[pptx_cache_key] = pptx_bytes
-
     safe_title = report_title.replace(" ", "_")
-    st.download_button(
-        label="📥  Download Executive PowerPoint Deck (.pptx)",
-        data=pptx_bytes,
-        file_name=f"{safe_title}.pptx",
-        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        use_container_width=True,
-        type="primary",
-    )
+
+    if pptx_cache_key in st.session_state.pptx_cache:
+        col_dl, col_rebuild = st.columns([3, 1])
+        with col_dl:
+            st.download_button(
+                label="📥  Download Executive PowerPoint Deck (.pptx)",
+                data=st.session_state.pptx_cache[pptx_cache_key],
+                file_name=f"{safe_title}.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                use_container_width=True,
+                type="primary",
+            )
+        with col_rebuild:
+            if st.button("🔄 Recompile", use_container_width=True, help="Re-render charts and rebuild presentation"):
+                del st.session_state.pptx_cache[pptx_cache_key]
+                st.rerun()
+    else:
+        st.caption("✦ The slide preview above is generated instantly. Compile your 16:9 executive PowerPoint deck when you're ready to export.")
+        if st.button("🚀  Generate Executive PowerPoint Deck (.pptx)", type="primary", use_container_width=True):
+            with st.spinner("🎨 Rendering high-resolution chart PNGs and compiling PowerPoint deck..."):
+                import tempfile
+                from chart_engine   import generate_all_charts
+                from slide_builder  import build_presentation
+
+                # Synchronize user-selected top products ranking into report_data
+                report_data["top_products"] = prod_rank
+
+                chart_config = {
+                    "trend_type":  trend_style,
+                    "cat_type":    cat_style,
+                    "region_type": region_style,
+                    "top_metric":  top_metric,
+                }
+
+                # Isolated temporary directory ensures simultaneous users never overwrite each other's charts/decks
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    logo_path = None
+                    if 'logo_file' in locals() and logo_file:
+                        logo_ext = logo_file.name.split('.')[-1]
+                        logo_path = os.path.join(tmp_dir, f"brand_logo.{logo_ext}")
+                        with open(logo_path, "wb") as f:
+                            f.write(logo_file.getbuffer())
+
+                    chart_paths = generate_all_charts(report_data, config=chart_config, output_dir=tmp_dir)
+                    pptx_path   = build_presentation(
+                        report_data, chart_paths,
+                        report_title=report_title,
+                        narrative=narrative,
+                        output_dir=tmp_dir,
+                        brand_color=brand_color if 'brand_color' in locals() else None,
+                        logo_path=logo_path
+                    )
+                    with open(pptx_path, "rb") as f:
+                        pptx_bytes = f.read()
+
+                st.session_state.pptx_cache[pptx_cache_key] = pptx_bytes
+                st.rerun()
 
     st.caption("✦ Includes all generated charts, KPI summary cards, and speaker notes. Fully editable in PowerPoint & Google Slides.")
