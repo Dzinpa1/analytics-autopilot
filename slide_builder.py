@@ -123,6 +123,7 @@ def slide_kpis(prs, kpis, insights, meta: dict = None, note: str = None, accent_
             pass
 
     meta = meta or {}
+    sym = meta.get("currency_symbol", "$")
     rev_label = meta.get("rev_label", "Total Revenue")
     profit_label = meta.get("profit_label", "Total Profit")
     margin_label = meta.get("margin_label", "Profit Margin")
@@ -130,12 +131,12 @@ def slide_kpis(prs, kpis, insights, meta: dict = None, note: str = None, accent_
     aov_label = meta.get("aov_label", "Avg Order Value")
 
     # Row 1 — 4 KPI cards
-    profit_display = f"${kpis['total_profit']:,.0f}" if kpis.get("total_profit") is not None else "N/A"
+    profit_display = f"{sym}{kpis['total_profit']:,.0f}" if kpis.get("total_profit") is not None else "N/A"
     margin_display = f"{kpis['profit_margin']}%" if kpis.get("profit_margin") is not None else "N/A"
 
     primary_kpi_color = accent_color if accent_color else C_BLUE
     cards_r1 = [
-        (rev_label,     f"${kpis['total_revenue']:,.0f}",  0.3,  primary_kpi_color),
+        (rev_label,     f"{sym}{kpis['total_revenue']:,.0f}",  0.3,  primary_kpi_color),
         (profit_label,  profit_display,                     2.65, C_GREEN),
         (margin_label,  margin_display,                     5.0,  C_PURPLE),
         (volume_label,  f"{kpis['total_orders']:,}",        7.35, C_AMBER),
@@ -145,7 +146,7 @@ def slide_kpis(prs, kpis, insights, meta: dict = None, note: str = None, accent_
 
     # Row 2 — 3 KPI cards
     cards_r2 = [
-        (aov_label,          f"${kpis['avg_order_value']:,.2f}",  1.5,  primary_kpi_color),
+        (aov_label,          f"{sym}{kpis['avg_order_value']:,.2f}",  1.5,  primary_kpi_color),
         ("Return Rate",      f"{kpis['return_rate']}%",            3.85, C_AMBER),
         ("Total Units",      f"{kpis['total_units']:,}",           6.2,  C_GREEN),
     ]

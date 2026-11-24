@@ -90,7 +90,7 @@ def monthly_trend(df: pd.DataFrame, has_profit: bool = True) -> pd.DataFrame:
     return monthly
 
 
-def detect_time_series_anomalies(monthly: pd.DataFrame, z_threshold: float = 1.5, mom_threshold: float = 35.0) -> list:
+def detect_time_series_anomalies(monthly: pd.DataFrame, z_threshold: float = 1.5, mom_threshold: float = 35.0, currency_symbol: str = "$") -> list:
     """
     Statistical anomaly detection on time-series monthly revenue.
     Identifies significant surges and contractions using Z-score and MoM acceleration.
@@ -126,7 +126,7 @@ def detect_time_series_anomalies(monthly: pd.DataFrame, z_threshold: float = 1.5
                 "pct_diff_mean": round(float(pct_diff), 1),
                 "mom_growth": round(float(mom), 1),
                 "severity": "High" if abs(z) >= 2.0 else "Moderate",
-                "summary": f"{row.get('Month_Label', 'Month')}: {anom_type} of ${float(rev):,.0f} ({z:+.2f}σ, {pct_diff:+.1f}% vs. mean)",
+                "summary": f"{row.get('Month_Label', 'Month')}: {anom_type} of {currency_symbol}{float(rev):,.0f} ({z:+.2f}σ, {pct_diff:+.1f}% vs. mean)",
             })
 
     return sorted(anomalies, key=lambda a: abs(a["z_score"]), reverse=True)
@@ -239,7 +239,7 @@ def get_mode_kpi_labels(report_mode: str = "Sales & Retail Performance") -> dict
         }
 
 
-def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: str = "Sales & Retail Performance") -> dict:
+def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: str = "Sales & Retail Performance", currency_symbol: str = "$") -> dict:
     """
     Core deterministic data engine. Takes any raw or mapped DataFrame,
     normalizes columns, strips currency characters, and computes all KPIs.
@@ -380,13 +380,16 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     top_region = region.iloc[0]["Region"] if not region.empty else "Global"
     top_channel = channels.iloc[0]["Channel"] if not channels.empty else "Direct"
 
-    anomalies = detect_time_series_anomalies(monthly)
+    anomalies = detect_time_series_anomalies(monthly, currency_symbol=currency_symbol)
     has_anomalies = len(anomalies) > 0
     if has_anomalies:
         top_anom = anomalies[0]
         anomaly_headline = f"{top_anom['period']} experienced a statistical {top_anom['type'].lower()} ({top_anom['z_score']:+.2f}σ, {top_anom['pct_diff_mean']:+.1f}% vs. mean)."
     else:
         anomaly_headline = "Trajectory remained within expected ±1.5σ historical bounds with no abnormal volatility."
+
+    meta_dict = get_mode_kpi_labels(report_mode)
+    meta_dict["currency_symbol"] = currency_symbol
 
     return {
         "df":           clean_df,
@@ -397,7 +400,7 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
         "top_products": products,
         "channels":     channels,
         "report_mode":  report_mode,
-        "meta":         get_mode_kpi_labels(report_mode),
+        "meta":         meta_dict,
         "insights": {
             "best_month":        best_month,
             "worst_month":       worst_month,
@@ -413,9 +416,9 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     }
 
 
-def build_report(filepath: str, report_mode: str = "Sales & Retail Performance") -> dict:
+def build_report(filepath: str, report_mode: str = "Sales & Retail Performance", currency_symbol: str = "$") -> dict:
     df = load_and_validate(filepath)
-    return build_report_from_df(df, report_mode=report_mode)
+    return build_report_from_df(df, report_mode=report_mode, currency_symbol=currency_symbol)
 
 
 if __name__ == "__main__":

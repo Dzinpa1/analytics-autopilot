@@ -43,6 +43,7 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
 - [x] **Data Health & Cleaning Audit Log:** Record automated cleaning steps in `analysis_engine.py` (e.g., rows cleaned, currency symbols stripped, missing values handled) and display a compact "Data Hygiene" summary in the UI.
 - [x] Replace the shared `output/` directory in `chart_engine.py` and `slide_builder.py` with `tempfile.TemporaryDirectory()` (or session-scoped paths) so simultaneous users never overwrite each other's charts/decks.
 - [x] Merge `ui-redesign` branch cleanly into `main` once sidebar layout & CSS polish are verified.
+- [x] Pre-deployment edge-case hardening (sync chart dropdown state to PPTX, dynamic currency symbols `₵`/`₦`/`£`/`€`/`$`, horizontal bar for >5 products, multi-sheet Excel support, pinned `kaleido==0.2.1`, production reload cleanup).
 - [ ] Deploy live to **Streamlit Community Cloud** and share with 10–15 beta testers for real-world feedback.
 
 ## 4. PHASE 2: Commercial SaaS Product (v1.0 Paid Full-Stack)

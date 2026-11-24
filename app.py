@@ -544,6 +544,15 @@ with st.sidebar:
         type=["csv", "xlsx", "xls"],
         label_visibility="collapsed"
     )
+    selected_sheet = 0
+    if uploaded_file and uploaded_file.name.endswith((".xlsx", ".xls")):
+        try:
+            with pd.ExcelFile(uploaded_file) as xl:
+                if len(xl.sheet_names) > 1:
+                    st.markdown('<div style="font-size:11px;font-weight:700;color:#38BDF8;text-transform:uppercase;letter-spacing:0.06em;margin-top:8px;margin-bottom:4px;">Select Excel Sheet</div>', unsafe_allow_html=True)
+                    selected_sheet = st.selectbox("Excel Sheet", xl.sheet_names, key="excel_sheet_select", label_visibility="collapsed")
+        except Exception:
+            selected_sheet = 0
     use_sample = st.checkbox("⚡ Load sample dataset", value=False if uploaded_file else True)
 
 if not uploaded_file and not use_sample:
@@ -558,7 +567,10 @@ with st.spinner("Processing data engine..."):
         from generate_data import generate_sales_data
         df = generate_sales_data()
     else:
-        df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(".csv") else pd.read_excel(uploaded_file)
+        if uploaded_file.name.endswith(".csv"):
+            df = pd.read_csv(uploaded_file)
+        else:
+            df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
 
 cols = df.columns.tolist()
 def fcol(candidates):
@@ -623,15 +635,15 @@ with st.sidebar:
             st.caption(f"✦ Using built-in deterministic {report_mode} executive commentary.")
 
     with st.expander("🎨 Brand Kit & White-Labeling", expanded=False):
+        currency_options = ["$", "₵", "₦", "£", "€", "None"]
+        currency_symbol = st.selectbox("Currency Symbol", currency_options, index=0, help="Currency symbol used across KPI cards, chart axes, and presentation slides.")
+        curr_sym = "" if currency_symbol == "None" else currency_symbol
         brand_color = st.color_picker("Brand Accent Color", value="#6366F1", help="Select corporate accent color to theme the PowerPoint presentation.")
         logo_file = st.file_uploader("Brand Logo (.png, .jpg)", type=["png", "jpg", "jpeg"], help="Optional: Upload company logo for slide headers and cover.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # COMPUTE METRICS VIA ANALYSIS ENGINE (Single Source of Truth, Cached)
 # ─────────────────────────────────────────────────────────────────────────────
-import importlib
-import analysis_engine
-importlib.reload(analysis_engine)
 from analysis_engine import build_report_from_df
 
 col_mapping = {
@@ -645,11 +657,11 @@ col_mapping = {
 }
 
 @st.cache_data(show_spinner=False)
-def get_cached_report(_df, mapping, mode):
-    return build_report_from_df(_df, mapping=mapping, report_mode=mode)
+def get_cached_report(_df, mapping, mode, curr):
+    return build_report_from_df(_df, mapping=mapping, report_mode=mode, currency_symbol=curr)
 
 try:
-    report_data = get_cached_report(df, col_mapping, report_mode)
+    report_data = get_cached_report(df, col_mapping, report_mode, curr_sym)
 except Exception as e:
     st.error(f"⚠️ **Could not process this spreadsheet:** {str(e)}\n\nPlease ensure your Date and Revenue columns contain valid values.")
     st.stop()
@@ -702,9 +714,10 @@ meta        = report_data.get("meta", {})
 
 def fmt(v):
     if v is None: return "N/A"
-    if v >= 1_000_000: return f"${v/1_000_000:.2f}M"
-    elif v >= 1_000:   return f"${v/1_000:.1f}K"
-    return f"${v:,.0f}"
+    prefix = curr_sym
+    if v >= 1_000_000: return f"{prefix}{v/1_000_000:.2f}M"
+    elif v >= 1_000:   return f"{prefix}{v/1_000:.1f}K"
+    return f"{prefix}{v:,.0f}"
 
 profit_display = fmt(total_profit) if has_profit and total_profit is not None else "Not Available"
 profit_pill    = meta.get("profit_sub", "After All Costs") if has_profit and total_profit is not None else "Allocation Mode"
@@ -725,7 +738,7 @@ from ai_narrator import generate_narrative, get_gemini_api_key
 
 active_api_key = (gemini_api_key_input.strip() if 'gemini_api_key_input' in locals() and gemini_api_key_input else None) or get_gemini_api_key()
 
-cache_key = f"nar_{report_mode}_{report_title}_{total_revenue}_{total_orders}_{bool(active_api_key)}"
+cache_key = f"nar_{report_mode}_{report_title}_{total_revenue}_{total_orders}_{curr_sym}_{bool(active_api_key)}"
 if "narrative_cache" not in st.session_state:
     st.session_state.narrative_cache = {}
 
@@ -743,12 +756,13 @@ takeaways     = narrative.get("takeaways", [])
 # ─────────────────────────────────────────────────────────────────────────────
 # WORKSPACE TABS: EXECUTIVE DASHBOARD & SLIDE DECK
 # ─────────────────────────────────────────────────────────────────────────────
-# Fallback initialization to ensure variables exist across tab boundaries
-trend_style = 'Grouped Bars'
-cat_style = 'Horizontal Bar'
-region_style = 'Donut'
-top_metric = 'Revenue'
-prod_rank = report_data.get('top_products')
+# Synchronize session state across tab boundaries with resilient defaults
+trend_style  = st.session_state.get("ctrl_trend", "Grouped Bars")
+cat_style    = st.session_state.get("ctrl_cat", "Horizontal Bar")
+region_style = st.session_state.get("ctrl_region", "Donut")
+top_metric   = st.session_state.get("ctrl_metric", "Revenue")
+top_n        = st.session_state.get("ctrl_count", 5)
+prod_rank    = report_data.get('top_products')
 
 tab_dash, tab_deck = st.tabs(["📊 Executive Dashboard", "🖥️ Slide Deck Preview & Export"])
 
@@ -868,7 +882,7 @@ with tab_dash:
                 chart1_title = "Revenue & Profit Trajectory (Line)"
             else:
                 chart1_title = "Monthly Revenue Trajectory (Line)"
-            fig1.update_yaxes(tickprefix="$", tickformat=",.0f")
+            fig1.update_yaxes(tickprefix=curr_sym, tickformat=",.0f")
             st.plotly_chart(style_chart(fig1, chart1_title), use_container_width=True)
         elif trend_style == "MoM Growth %":
             growth_colors = ["#34D399" if v >= 0 else "#F87171" for v in monthly["MoM_Growth"].fillna(0)]
@@ -894,7 +908,7 @@ with tab_dash:
                 chart1_title = "Monthly Revenue vs Net Profit"
             else:
                 chart1_title = "Monthly Revenue Performance"
-            fig1.update_yaxes(tickprefix="$", tickformat=",.0f")
+            fig1.update_yaxes(tickprefix=curr_sym, tickformat=",.0f")
             st.plotly_chart(style_chart(fig1, chart1_title), use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -934,14 +948,14 @@ with tab_dash:
             )
             st.plotly_chart(fig2, use_container_width=True)
         else:
-            bar_text = [f"${v:,.0f}  ({m:.1f}%)" if has_profit else f"${v:,.0f}" for v, m in zip(category["Revenue"], category["Margin_%"])]
+            bar_text = [f"{curr_sym}{v:,.0f}  ({m:.1f}%)" if has_profit else f"{curr_sym}{v:,.0f}" for v, m in zip(category["Revenue"], category["Margin_%"])]
             fig2 = go.Figure(go.Bar(
                 x=category["Revenue"], y=category[cat_col], orientation="h",
                 marker_color=PALETTE[:len(category)],
                 text=bar_text,
                 textposition="outside", textfont=dict(color=TEXT_COLOR, size=11),
             ))
-            fig2.update_xaxes(tickprefix="$", tickformat=",.0f")
+            fig2.update_xaxes(tickprefix=curr_sym, tickformat=",.0f")
             fig2.update_yaxes(autorange="reversed")
             bar_title = f"Revenue & Margin by {cat_col}" if has_profit else f"Revenue by {cat_col}"
             st.plotly_chart(style_chart(fig2, bar_title), use_container_width=True)
@@ -961,10 +975,10 @@ with tab_dash:
             fig3 = go.Figure(go.Bar(
                 x=region_df[region_col], y=region_df["Revenue"],
                 marker_color=PALETTE[:len(region_df)],
-                text=[f"${v:,.0f}" for v in region_df["Revenue"]],
+                text=[f"{curr_sym}{v:,.0f}" for v in region_df["Revenue"]],
                 textposition="outside", textfont=dict(color=TEXT_COLOR, size=10),
             ))
-            fig3.update_yaxes(tickprefix="$", tickformat=",.0f")
+            fig3.update_yaxes(tickprefix=curr_sym, tickformat=",.0f")
             st.plotly_chart(style_chart(fig3, f"Revenue by {region_col}"), use_container_width=True)
         elif region_style == "Pie Chart":
             fig3 = go.Figure(go.Pie(
@@ -1026,11 +1040,11 @@ with tab_dash:
         fig4 = go.Figure(go.Bar(
             x=prod_rank["Product"], y=prod_rank[top_metric],
             marker_color=PALETTE[:len(prod_rank)],
-            text=[f"${v:,.0f}" if is_curr else f"{int(v):,} units" for v in prod_rank[top_metric]],
+            text=[f"{curr_sym}{v:,.0f}" if is_curr else f"{int(v):,} units" for v in prod_rank[top_metric]],
             textposition="outside", textfont=dict(color=TEXT_COLOR, size=10),
         ))
         if is_curr:
-            fig4.update_yaxes(tickprefix="$", tickformat=",.0f")
+            fig4.update_yaxes(tickprefix=curr_sym, tickformat=",.0f")
         else:
             fig4.update_yaxes(tickformat=",.0f")
         st.plotly_chart(style_chart(fig4, f"Top {top_n} Products by {top_metric}"), use_container_width=True)
@@ -1174,16 +1188,21 @@ with tab_deck:
     if "pptx_cache" not in st.session_state:
         st.session_state.pptx_cache = {}
 
+    active_trend  = st.session_state.get("ctrl_trend", trend_style)
+    active_cat    = st.session_state.get("ctrl_cat", cat_style)
+    active_region = st.session_state.get("ctrl_region", region_style)
+    active_metric = st.session_state.get("ctrl_metric", top_metric)
+    active_top_n  = st.session_state.get("ctrl_count", top_n)
+
     logo_name = logo_file.name if ('logo_file' in locals() and logo_file) else None
     bc_val = brand_color if 'brand_color' in locals() else None
-    top_n_val = top_n if 'top_n' in locals() else 5
     pptx_cache_key = (
         cache_key,
-        trend_style,
-        cat_style,
-        region_style,
-        top_metric,
-        top_n_val,
+        active_trend,
+        active_cat,
+        active_region,
+        active_metric,
+        active_top_n,
         bc_val,
         logo_name,
         report_title,
@@ -1215,14 +1234,27 @@ with tab_deck:
                 from chart_engine   import generate_all_charts
                 from slide_builder  import build_presentation
 
-                # Synchronize user-selected top products ranking into report_data
-                report_data["top_products"] = prod_rank
+                # Synchronize ranking and aggregation dynamically with active metric and count
+                clean_df = report_data.get("df", df)
+                prod_col_name = "Product" if "Product" in clean_df.columns else ("Category" if "Category" in clean_df.columns else cat_col)
+                agg_spec = {
+                    "Revenue": ("Revenue", "sum"),
+                    "Quantity": ("Quantity", "sum") if "Quantity" in clean_df.columns else ("Revenue", "count")
+                }
+                if has_profit and "Profit" in clean_df.columns:
+                    agg_spec["Profit"] = ("Profit", "sum")
+                else:
+                    agg_spec["Profit"] = ("Revenue", lambda s: 0.0)
+
+                sync_rank = clean_df.groupby(prod_col_name).agg(**agg_spec).reset_index().rename(columns={prod_col_name: "Product"})
+                sync_rank = sync_rank.sort_values(active_metric, ascending=False).head(active_top_n)
+                report_data["top_products"] = sync_rank
 
                 chart_config = {
-                    "trend_type":  trend_style,
-                    "cat_type":    cat_style,
-                    "region_type": region_style,
-                    "top_metric":  top_metric,
+                    "trend_type":  active_trend,
+                    "cat_type":    active_cat,
+                    "region_type": active_region,
+                    "top_metric":  active_metric,
                 }
 
                 # Isolated temporary directory ensures simultaneous users never overwrite each other's charts/decks
