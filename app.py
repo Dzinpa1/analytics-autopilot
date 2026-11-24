@@ -903,10 +903,12 @@ with tab_dash:
             cat_style = st.selectbox("Style", ["Horizontal Bar", "Treemap", "Donut"], key="ctrl_cat", label_visibility="collapsed")
 
         if cat_style == "Treemap":
+            color_col = "Margin_%" if has_profit else "Revenue"
+            treemap_title = f"{cat_col} Revenue Distribution & Margin %" if has_profit else f"{cat_col} Revenue Distribution"
             fig2 = px.treemap(
                 category, path=[cat_col], values="Revenue",
-                color="Margin_%", color_continuous_scale=["#1E1B4B", "#312E81", "#4F46E5", "#38BDF8"],
-                title=f"Category Volume & Margin Matrix"
+                color=color_col, color_continuous_scale=["#1E1B4B", "#312E81", "#4F46E5", "#38BDF8"],
+                title=treemap_title
             )
             fig2.update_layout(
                 paper_bgcolor=DARK_BG, plot_bgcolor=DARK_BG,
@@ -928,15 +930,17 @@ with tab_dash:
             )
             st.plotly_chart(fig2, use_container_width=True)
         else:
+            bar_text = [f"${v:,.0f}  ({m:.1f}%)" if has_profit else f"${v:,.0f}" for v, m in zip(category["Revenue"], category["Margin_%"])]
             fig2 = go.Figure(go.Bar(
                 x=category["Revenue"], y=category[cat_col], orientation="h",
                 marker_color=PALETTE[:len(category)],
-                text=[f"${v:,.0f}  ({m:.1f}%)" for v, m in zip(category["Revenue"], category["Margin_%"])],
+                text=bar_text,
                 textposition="outside", textfont=dict(color=TEXT_COLOR, size=11),
             ))
             fig2.update_xaxes(tickprefix="$", tickformat=",.0f")
             fig2.update_yaxes(autorange="reversed")
-            st.plotly_chart(style_chart(fig2, f"Revenue & Margin by {cat_col}"), use_container_width=True)
+            bar_title = f"Revenue & Margin by {cat_col}" if has_profit else f"Revenue by {cat_col}"
+            st.plotly_chart(style_chart(fig2, bar_title), use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     ch3, ch4 = st.columns(2)
