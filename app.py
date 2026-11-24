@@ -763,18 +763,20 @@ with tab_dash:
             anom_color = "#34D399" if top_a["type"] == "Surge" else "#F87171"
             anom_bg = "rgba(16, 185, 129, 0.12)" if top_a["type"] == "Surge" else "rgba(248, 113, 113, 0.12)"
             anom_border = "rgba(16, 185, 129, 0.3)" if top_a["type"] == "Surge" else "rgba(248, 113, 113, 0.3)"
-            anom_badge = f"""
-            <div style="margin-top:10px;padding:6px 12px;border-radius:8px;background:{anom_bg};border:1px solid {anom_border};font-size:12px;color:#F8FAFC;display:inline-flex;align-items:center;gap:6px;">
-                <span style="font-weight:700;color:{anom_color};">⚡ STATISTICAL {top_a['type'].upper()} DETECTED:</span>
-                {top_a['period']} recorded {top_a['pct_diff_mean']:+.1f}% vs. baseline ({top_a['z_score']:+.2f}σ deviation)
-            </div>
-            """
-        st.markdown(f"""
-        <div style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(56,189,248,0.04));border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:14px 18px;margin-bottom:20px;font-size:13px;color:#E2E8F0;line-height:1.6;">
-            <div><span style="font-weight:700;color:#A5B4FC;margin-right:8px;">✦ EXECUTIVE BRIEFING:</span>{narrative['executive_summary']}</div>
-            {anom_badge}
-        </div>
-        """, unsafe_allow_html=True)
+            anom_badge = (
+                f'<div style="margin-top:12px;padding:8px 14px;border-radius:8px;background:{anom_bg};border:1px solid {anom_border};font-size:12px;color:#F8FAFC;display:inline-flex;align-items:center;gap:6px;">'
+                f'<span style="font-weight:700;color:{anom_color};">⚡ STATISTICAL {top_a["type"].upper()} DETECTED:</span>'
+                f'{top_a["period"]} recorded {top_a["pct_diff_mean"]:+.1f}% vs. baseline ({top_a["z_score"]:+.2f}σ deviation)'
+                f'</div>'
+            )
+
+        briefing_html = (
+            f'<div style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(56,189,248,0.04));border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:14px 18px;margin-bottom:20px;font-size:13px;color:#E2E8F0;line-height:1.6;">'
+            f'<div><span style="font-weight:700;color:#A5B4FC;margin-right:8px;">✦ EXECUTIVE BRIEFING:</span>{narrative["executive_summary"]}</div>'
+            f'{anom_badge}'
+            f'</div>'
+        )
+        st.markdown(briefing_html, unsafe_allow_html=True)
 
     kpi_rev_lbl = meta.get("rev_label", "Gross Revenue")
     kpi_profit_lbl = meta.get("profit_label", "Net Profit")
