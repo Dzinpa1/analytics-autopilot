@@ -28,14 +28,14 @@ st.markdown("""
 
 /* Global Reset & Base */
 html, body, [data-testid="stAppViewContainer"], .stApp {
-    background: #080B11 !important;
+    background: #0B0F19 !important;
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
     color: #F8FAFC !important;
 }
 
 [data-testid="stSidebar"] {
-    background-color: #0E131F !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+    background-color: #111827 !important;
+    border-right: 1px solid #1F2937 !important;
 }
 [data-testid="stSidebarHeader"] {
     padding-top: 0.5rem !important;
@@ -60,7 +60,7 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     align-items: center;
     justify-content: space-between;
     padding: 14px 0 20px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    border-bottom: 1px solid #1F2937;
     margin-bottom: 28px;
 }
 .ap-logo-group {
@@ -111,8 +111,8 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 
 /* Hero Section */
 .hero-box {
-    background: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.12) 0%, transparent 70%), #111827;
+    border: 1px solid #1F2937;
     border-radius: 16px;
     padding: 32px 36px;
     margin-bottom: 28px;
@@ -135,8 +135,8 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 
 /* Control Rail */
 .control-rail {
-    background: #0E131F;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #111827;
+    border: 1px solid #1F2937;
     border-radius: 14px;
     padding: 20px 24px;
     margin-bottom: 28px;
@@ -150,8 +150,8 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     margin-bottom: 28px;
 }
 .kpi-card {
-    background: #0E131F;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #111827;
+    border: 1px solid #1F2937;
     border-radius: 14px;
     padding: 22px 24px;
     position: relative;
@@ -201,8 +201,8 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 
 /* Chart Containers */
 .chart-box {
-    background: #0E131F;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #111827;
+    border: 1px solid #1F2937;
     border-radius: 14px;
     padding: 16px;
     margin-bottom: 20px;
@@ -216,8 +216,8 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     margin-bottom: 28px;
 }
 .insight-card {
-    background: #0E131F;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #111827;
+    border: 1px solid #1F2937;
     border-left: 3px solid #6366F1;
     border-radius: 12px;
     padding: 20px;
@@ -255,20 +255,20 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     content: '';
     flex: 1;
     height: 1px;
-    background: rgba(255, 255, 255, 0.07);
+    background: #1F2937;
 }
 
 /* Slide Carousel Frame */
 .carousel-box {
-    background: #0E131F;
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: #111827;
+    border: 1px solid #1F2937;
     border-radius: 16px;
     padding: 24px;
     margin-bottom: 28px;
 }
 .deck-viewport {
-    background: #06090F;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #0B0F19;
+    border: 1px solid #1F2937;
     border-radius: 14px;
     padding: 28px 24px;
     display: flex;
@@ -279,8 +279,8 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     width: 100%;
     max-width: 920px;
     min-height: 440px;
-    background: radial-gradient(circle at 80% 20%, #151E33 0%, #0D1322 100%);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: radial-gradient(circle at 80% 20%, #172033 0%, #0F172A 100%);
+    border: 1px solid #1F2937;
     border-radius: 12px;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(99, 102, 241, 0.15);
     display: flex;
@@ -301,7 +301,7 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid #1F2937;
     padding-bottom: 14px;
     margin-bottom: 24px;
 }
@@ -329,8 +329,8 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 .speaker-notes-box {
     width: 100%;
     max-width: 920px;
-    background: #0E131F;
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: #111827;
+    border: 1px solid #1F2937;
     border-left: 3px solid #818CF8;
     border-radius: 10px;
     padding: 16px 20px;
@@ -339,7 +339,7 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 
 /* Streamlit Inputs Overrides */
 div[data-testid="stFileUploader"] > div {
-    background: #0E131F !important;
+    background: #111827 !important;
     border: 1.5px dashed rgba(99, 102, 241, 0.35) !important;
     border-radius: 14px !important;
 }
@@ -347,8 +347,8 @@ div[data-testid="stFileUploader"] > div:hover {
     border-color: #6366F1 !important;
 }
 div[data-testid="stTextInput"] input {
-    background: #141B2D !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: #1F2937 !important;
+    border: 1px solid #374151 !important;
     color: #F8FAFC !important;
     border-radius: 8px !important;
 }
@@ -377,9 +377,9 @@ button[kind="primary"]:hover {
 .stTabs [data-baseweb="tab"] {
     height: 44px !important;
     white-space: pre-wrap !important;
-    background-color: rgba(255, 255, 255, 0.03) !important;
+    background-color: rgba(255, 255, 255, 0.02) !important;
     border-radius: 8px 8px 0px 0px !important;
-    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid #1F2937 !important;
     border-bottom: none !important;
     color: #94A3B8 !important;
     font-size: 13px !important;
@@ -392,9 +392,9 @@ button[kind="primary"]:hover {
     background-color: rgba(99, 102, 241, 0.08) !important;
 }
 .stTabs [aria-selected="true"] {
-    background-color: #0E131F !important;
+    background-color: #111827 !important;
     color: #A5B4FC !important;
-    border-color: rgba(99, 102, 241, 0.3) !important;
+    border-color: #1F2937 !important;
     border-bottom: 2px solid #6366F1 !important;
 }
 </style>
@@ -700,10 +700,10 @@ with tab_dash:
     # ─────────────────────────────────────────────────────────────────────────────
     st.markdown('<div class="section-title">Interactive Analytics Engine · Customizable Visuals</div>', unsafe_allow_html=True)
 
-    DARK_BG    = "#0E131F"
-    GRID_COLOR = "rgba(255, 255, 255, 0.06)"
+    DARK_BG    = "#111827"
+    GRID_COLOR = "#1F2937"
     TEXT_COLOR = "#94A3B8"
-    PALETTE    = ["#6366F1", "#38BDF8", "#34D399", "#FBBF24", "#F87171", "#C084FC"]
+    PALETTE    = ["#6366F1", "#38BDF8", "#818CF8", "#0EA5E9", "#A5B4FC", "#64748B"]
 
     def style_chart(fig, title):
         fig.update_layout(
@@ -790,7 +790,7 @@ with tab_dash:
         if cat_style == "Treemap":
             fig2 = px.treemap(
                 category, path=[cat_col], values="Revenue",
-                color="Margin_%", color_continuous_scale=["#6366F1", "#38BDF8", "#34D399"],
+                color="Margin_%", color_continuous_scale=["#1E1B4B", "#312E81", "#4F46E5", "#38BDF8"],
                 title=f"Category Volume & Margin Matrix"
             )
             fig2.update_layout(
@@ -950,7 +950,7 @@ with tab_deck:
     recs_grid_html = ""
     for r in recs[:4]:
         accent = r.get("accent", accent_tint)
-        recs_grid_html += f'''<div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-left:3px solid {accent};border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:{accent};text-transform:uppercase;">{r.get('tag', '')}</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;"><strong>{r.get('title', '')}:</strong> {r.get('body', '')}</div></div>'''
+        recs_grid_html += f'''<div style="background:#111827;border:1px solid #1F2937;border-left:3px solid {accent};border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:{accent};text-transform:uppercase;">{r.get('tag', '')}</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;"><strong>{r.get('title', '')}:</strong> {r.get('body', '')}</div></div>'''
 
     slides = [
         {
@@ -966,7 +966,7 @@ with tab_deck:
             "name": "KPI Matrix",
             "icon": "📌",
             "tag": "EXECUTIVE HIGHLIGHTS · SLIDE 02",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial & Operational Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_rev_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">↑ {mom_avg:.1f}% Avg MoM</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_profit_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{profit_str}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">{profit_pill}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_margin_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{margin_str}</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">{margin_pill}</div></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_vol_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">{kpi_aov_lbl}: {fmt(avg_order_val)}</div></div></div><div style="background:#0E131F;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: {kpi_rev_lbl} closed at {fmt(total_revenue)} with healthy margin retention at {margin_str}, indicating disciplined capital allocation and commercial control.</div></div>''',
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial & Operational Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_rev_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">↑ {mom_avg:.1f}% Avg MoM</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_profit_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{profit_str}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">{profit_pill}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_margin_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{margin_str}</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">{margin_pill}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_vol_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">{kpi_aov_lbl}: {fmt(avg_order_val)}</div></div></div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: {kpi_rev_lbl} closed at {fmt(total_revenue)} with healthy margin retention at {margin_str}, indicating disciplined capital allocation and commercial control.</div></div>''',
             "notes": speaker_notes.get("slide_2", f"Slide 2 outlines our bottom-line numbers. Net profit reached {profit_str} on {fmt(total_revenue)} of gross revenue. With an average order value of {fmt(avg_order_val)}, our {margin_str} margins give us substantial headroom to invest in marketing.")
         },
         {
@@ -974,7 +974,7 @@ with tab_deck:
             "name": "Trajectory",
             "icon": "📈",
             "tag": "MOMENTUM & SEASONALITY · SLIDE 03",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{meta.get("trend_title", "Annual Trajectory & Peak Analysis")}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;"><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;"><div style="font-size:11px;color:#38BDF8;font-weight:700;text-transform:uppercase;">🏆 Annual High-Water Mark</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{best_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Highest activity concentration recorded. Driven by aligned campaign flights and peak demand velocity.</p></div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;"><div style="font-size:11px;color:#F87171;font-weight:700;text-transform:uppercase;">⚠️ Contraction Window</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{worst_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Softest period recorded. Represents our primary opportunity for strategic counter-cyclical initiatives.</p></div></div><div style="background:#0E131F;border-left:3px solid #38BDF8;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Executive Guidance: Ramp up operational readiness 45 days prior to {best_month} to maximize capture rate.</div></div>''',
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{meta.get("trend_title", "Annual Trajectory & Peak Analysis")}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;"><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;"><div style="font-size:11px;color:#38BDF8;font-weight:700;text-transform:uppercase;">🏆 Annual High-Water Mark</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{best_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Highest activity concentration recorded. Driven by aligned campaign flights and peak demand velocity.</p></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;"><div style="font-size:11px;color:#F87171;font-weight:700;text-transform:uppercase;">⚠️ Contraction Window</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{worst_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Softest period recorded. Represents our primary opportunity for strategic counter-cyclical initiatives.</p></div></div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #38BDF8;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Executive Guidance: Ramp up operational readiness 45 days prior to {best_month} to maximize capture rate.</div></div>''',
             "notes": speaker_notes.get("slide_3", f"Looking at seasonality on slide 3: our peak performance hit in {best_month}. Conversely, {worst_month} showed our seasonal trough. We recommend timing next year's promotional budget to hedge this exact slow period.")
         },
         {
@@ -982,7 +982,7 @@ with tab_deck:
             "name": "Segmentation",
             "icon": "🏆",
             "tag": "PORTFOLIO MIX · SLIDE 04",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{meta.get("category_title", "Portfolio Category & Contribution")}</div><div style="background:#0E131F;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:16px;font-weight:800;color:#F8FAFC;">Top Vertical: {top_cat}</span><span style="font-size:12px;font-weight:700;color:#34D399;background:rgba(16,185,129,0.12);padding:4px 10px;border-radius:12px;">{margin_str} Efficiency Index</span></div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.6;">{top_cat} accounts for the single largest volume and return contribution in our portfolio. Velocity is supported by high organic repeat rates.</p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#0E131F;border-left:3px solid #C084FC;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Lead Driver Focus:</strong> Double down on top 5 performing units to capture compounding scale.</div><div style="background:#0E131F;border-left:3px solid #FBBF24;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Efficiency Expansion:</strong> Audit lower-velocity categories on the cost side to optimize margin.</div></div></div>''',
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{meta.get("category_title", "Portfolio Category & Contribution")}</div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:16px;font-weight:800;color:#F8FAFC;">Top Vertical: {top_cat}</span><span style="font-size:12px;font-weight:700;color:#34D399;background:rgba(16,185,129,0.12);padding:4px 10px;border-radius:12px;">{margin_str} Efficiency Index</span></div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.6;">{top_cat} accounts for the single largest volume and return contribution in our portfolio. Velocity is supported by high organic repeat rates.</p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #C084FC;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Lead Driver Focus:</strong> Double down on top 5 performing units to capture compounding scale.</div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #FBBF24;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Efficiency Expansion:</strong> Audit lower-velocity categories on the cost side to optimize margin.</div></div></div>''',
             "notes": speaker_notes.get("slide_4", f"On slide 4, {top_cat} is our clear anchor category. It produces the bulk of our gross margin. Our recommendation here is to double down on inventory depth for our top 5 SKUs while reviewing cost structures for trailing categories.")
         },
         {
