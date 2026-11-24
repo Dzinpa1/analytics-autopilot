@@ -198,24 +198,38 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     has_mapped_cost   = False
 
     if mapping:
+        # Pre-cleanup: If mapping a source column to a target name that already exists in df
+        # (e.g. mapping 'Channel' to 'Category', but df already has an unselected 'Category' column),
+        # drop the colliding unselected column first so we never produce duplicate column names.
+        target_name_map = {
+            "date": "Date",
+            "revenue": "Revenue",
+            "profit": "Profit",
+            "cost": "Cost",
+            "category": "Category",
+            "region": "Region",
+            "product": "Product",
+            "quantity": "Quantity",
+        }
+        for target, src in mapping.items():
+            if src and src != "None / Not Available" and src in clean_df.columns:
+                target_col = target_name_map.get(target.lower(), target.capitalize())
+                if target_col in clean_df.columns and src != target_col:
+                    clean_df = clean_df.drop(columns=[target_col])
+
         rename_map = {}
         for target, src in mapping.items():
             if src and src != "None / Not Available" and src in clean_df.columns:
-                target_col = target.capitalize()
-                if target.lower() == "date": target_col = "Date"
-                elif target.lower() == "revenue": target_col = "Revenue"
-                elif target.lower() == "profit":
-                    target_col = "Profit"
+                target_col = target_name_map.get(target.lower(), target.capitalize())
+                if target.lower() == "profit":
                     has_mapped_profit = True
                 elif target.lower() == "cost":
-                    target_col = "Cost"
                     has_mapped_cost = True
-                elif target.lower() == "category": target_col = "Category"
-                elif target.lower() == "region": target_col = "Region"
-                elif target.lower() == "product": target_col = "Product"
-                elif target.lower() == "quantity": target_col = "Quantity"
                 rename_map[src] = target_col
         clean_df = clean_df.rename(columns=rename_map)
+
+    # Bulletproof guard against duplicate column names from any source
+    clean_df = clean_df.loc[:, ~clean_df.columns.duplicated()]
 
     # Standardize Date column
     if "Date" in clean_df.columns:
