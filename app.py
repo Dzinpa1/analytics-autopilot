@@ -38,10 +38,18 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
 [data-testid="stSidebarHeader"] {
-    display: none !important;
+    padding-top: 0.5rem !important;
+    padding-bottom: 0rem !important;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+    min-height: auto !important;
+    height: auto !important;
 }
 [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
-    padding: 1.25rem 1.25rem 3rem !important;
+    padding-top: 0.25rem !important;
+    padding-left: 1.25rem !important;
+    padding-right: 1.25rem !important;
+    padding-bottom: 3rem !important;
 }
 [data-testid="stHeader"]  { background: transparent !important; }
 .block-container { padding: 1.5rem 3rem 4rem !important; max-width: 1400px; }
