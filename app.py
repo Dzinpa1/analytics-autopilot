@@ -16,7 +16,7 @@ st.set_page_config(
     page_title="Analytics AutoPilot",
     page_icon="✦",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -33,7 +33,13 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     color: #F8FAFC !important;
 }
 
-[data-testid="stSidebar"] { display: none !important; }
+[data-testid="stSidebar"] {
+    background-color: #0E131F !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+    padding: 1.5rem 1.25rem 3rem !important;
+}
 [data-testid="stHeader"]  { background: transparent !important; }
 .block-container { padding: 1.5rem 3rem 4rem !important; max-width: 1400px; }
 
@@ -380,20 +386,21 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONTROL RAIL (File Upload & Settings)
+# SIDEBAR CONTROLS & WORKSPACE CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
-c_upload, c_mode, c_settings = st.columns([1.8, 1.2, 1.4])
+with st.sidebar:
+    st.markdown("""
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg, #6366F1, #8B5CF6);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#FFF;box-shadow:0 0 16px rgba(99,102,241,0.4);">✦</div>
+        <div>
+            <div style="font-size:16px;font-weight:800;color:#F8FAFC;letter-spacing:-0.02em;">AutoPilot <span style="background:linear-gradient(90deg,#818CF8,#C084FC);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Studio</span></div>
+            <div style="font-size:11px;color:#64748B;">Workspace Controls</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-with c_upload:
-    st.markdown('<div style="font-size:12px;font-weight:600;color:#94A3B8;margin-bottom:6px;">Upload Dataset (.csv, .xlsx)</div>', unsafe_allow_html=True)
-    uploaded_file = st.file_uploader(
-        "Upload dataset (.csv, .xlsx, .xls)",
-        type=["csv", "xlsx", "xls"],
-        label_visibility="collapsed"
-    )
-
-with c_mode:
-    st.markdown('<div style="font-size:12px;font-weight:600;color:#94A3B8;margin-bottom:6px;">Report Mode</div>', unsafe_allow_html=True)
+    # 1. Report Mode Selector
+    st.markdown('<div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">1. Report Workflow Mode</div>', unsafe_allow_html=True)
     report_mode = st.selectbox(
         "Report Mode",
         ["Sales & Retail Performance", "Marketing & Ad Campaign ROI", "Operations & Expense Tracker"],
@@ -402,20 +409,28 @@ with c_mode:
         help="Adapts KPI metrics, AI boardroom commentary, and slide structures to your specific business workflow."
     )
 
-default_titles = {
-    "Sales & Retail Performance": "2024 Sales Performance Review",
-    "Marketing & Ad Campaign ROI": "2024 Marketing ROI & Ad Spend Review",
-    "Operations & Expense Tracker": "2024 Operations & Expense Report"
-}
+    default_titles = {
+        "Sales & Retail Performance": "2024 Sales Performance Review",
+        "Marketing & Ad Campaign ROI": "2024 Marketing ROI & Ad Spend Review",
+        "Operations & Expense Tracker": "2024 Operations & Expense Report"
+    }
 
-with c_settings:
-    st.markdown('<div style="font-size:12px;font-weight:600;color:#94A3B8;margin-bottom:6px;">Presentation Title</div>', unsafe_allow_html=True)
+    # 2. Presentation Title
+    st.markdown('<div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-top:14px;margin-bottom:6px;">2. Presentation Title</div>', unsafe_allow_html=True)
     suggested_title = default_titles.get(report_mode, "2024 Executive Performance Review")
     report_title = st.text_input("Presentation Title", value=suggested_title, label_visibility="collapsed")
-    use_sample   = st.checkbox("⚡ Load sample dataset", value=False if uploaded_file else True)
+
+    # 3. Data Source
+    st.markdown('<div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-top:14px;margin-bottom:6px;">3. Data Source (.csv, .xlsx)</div>', unsafe_allow_html=True)
+    uploaded_file = st.file_uploader(
+        "Upload dataset (.csv, .xlsx, .xls)",
+        type=["csv", "xlsx", "xls"],
+        label_visibility="collapsed"
+    )
+    use_sample = st.checkbox("⚡ Load sample dataset", value=False if uploaded_file else True)
 
 if not uploaded_file and not use_sample:
-    st.info("👆 Drop a CSV/Excel file or check the sample dataset box to generate the report.")
+    st.info("👈 **Welcome to AutoPilot Studio!**\n\nPlease upload a dataset (.csv or .xlsx) or check **'Load sample dataset'** in the sidebar to generate your executive report.")
     st.stop()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -466,39 +481,33 @@ else:  # Sales & Retail Performance
 
 opt_cols = ["None / Not Available"] + cols
 
-# Column mapping collapse with role-specific label helpers
-with st.expander("⚙️ Verify Auto-Mapped Columns", expanded=False):
-    mc1, mc2, mc3 = st.columns(3)
-    with mc1:
-        rev_input_label = "Ad Spend / Revenue Column" if "Marketing" in report_mode else ("Budget / Allocation Column" if "Operations" in report_mode else "Revenue Column")
+# Sidebar Expanders for advanced workspace settings
+with st.sidebar:
+    with st.expander("⚙️ Verify Auto-Mapped Columns", expanded=False):
+        rev_input_label = "Spend / Revenue" if "Marketing" in report_mode else ("Budget / Allocation" if "Operations" in report_mode else "Revenue Column")
         date_col    = st.selectbox("Date Column", cols, index=cols.index(date_col))
         revenue_col = st.selectbox(rev_input_label, cols, index=cols.index(revenue_col))
-    with mc2:
-        profit_input_label = "Conversions / Return (Optional)" if "Marketing" in report_mode else ("Actual Expenses (Optional)" if "Operations" in report_mode else "Profit Column (Optional)")
+        profit_input_label = "Conversions / Return" if "Marketing" in report_mode else ("Actual Expenses" if "Operations" in report_mode else "Profit Column")
         profit_col  = st.selectbox(profit_input_label, opt_cols, index=opt_cols.index(profit_col))
-        cost_col    = st.selectbox("Cost / CPA Column (Optional)", opt_cols, index=opt_cols.index(cost_col))
-    with mc3:
-        cat_input_label = "Channel / Campaign Column" if "Marketing" in report_mode else ("Department / Cost Center" if "Operations" in report_mode else "Category Column")
-        reg_input_label = "Market / Geo Column" if "Marketing" in report_mode else ("Facility / Location" if "Operations" in report_mode else "Region Column")
+        cost_col    = st.selectbox("Cost / CPA Column", opt_cols, index=opt_cols.index(cost_col))
+        cat_input_label = "Channel / Campaign" if "Marketing" in report_mode else ("Department / Unit" if "Operations" in report_mode else "Category Column")
+        reg_input_label = "Market / Geo" if "Marketing" in report_mode else ("Facility / Location" if "Operations" in report_mode else "Region Column")
         cat_col     = st.selectbox(cat_input_label, cols, index=cols.index(cat_col))
         region_col  = st.selectbox(reg_input_label, cols, index=cols.index(region_col))
 
-with st.expander("🤖 AI Executive Settings (Google Gemini)", expanded=False):
-    gemini_api_key_input = st.text_input(
-        "Gemini API Key (Optional)",
-        type="password",
-        placeholder="AIzaSy... (leave blank to use built-in template)",
-        help="Paste your Gemini API key to generate live tailored executive narratives and speaker scripts. Key is stored only in session state."
-    )
-    if not gemini_api_key_input:
-        st.caption(f"✦ No API key provided? Analytics AutoPilot automatically generates our built-in {report_mode} executive commentary.")
+    with st.expander("🤖 AI Intelligence (Gemini)", expanded=False):
+        gemini_api_key_input = st.text_input(
+            "Gemini API Key (Optional)",
+            type="password",
+            placeholder="AIzaSy... (leave blank for template)",
+            help="Paste your Gemini API key to generate live tailored executive narratives and speaker scripts. Key is stored only in session state."
+        )
+        if not gemini_api_key_input:
+            st.caption(f"✦ Using built-in deterministic {report_mode} executive commentary.")
 
-with st.expander("🎨 Brand Kit & White-Labeling (Optional)", expanded=False):
-    bc1, bc2 = st.columns(2)
-    with bc1:
+    with st.expander("🎨 Brand Kit & White-Labeling", expanded=False):
         brand_color = st.color_picker("Brand Accent Color", value="#6366F1", help="Select corporate accent color to theme the PowerPoint presentation.")
-    with bc2:
-        logo_file = st.file_uploader("Upload Brand Logo (.png, .jpg)", type=["png", "jpg", "jpeg"], help="Optional: Upload company logo for slide headers and cover.")
+        logo_file = st.file_uploader("Brand Logo (.png, .jpg)", type=["png", "jpg", "jpeg"], help="Optional: Upload company logo for slide headers and cover.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # COMPUTE METRICS VIA ANALYSIS ENGINE (Single Source of Truth)
