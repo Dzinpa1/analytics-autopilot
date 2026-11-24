@@ -33,12 +33,21 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     color: #F8FAFC !important;
 }
 
-[data-testid="stSidebar"] {
+section[data-testid="stSidebar"] {
+    width: 330px !important;
+    min-width: 330px !important;
     background-color: #0E131F !important;
     border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
-[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
-    padding: 1.5rem 1.25rem 3rem !important;
+[data-testid="stSidebarHeader"] {
+    padding: 0.5rem 1rem 0rem !important;
+    height: auto !important;
+}
+[data-testid="stSidebarUserContent"] {
+    padding-top: 0.75rem !important;
+    padding-left: 1.25rem !important;
+    padding-right: 1.25rem !important;
+    padding-bottom: 3rem !important;
 }
 [data-testid="stHeader"]  { background: transparent !important; }
 .block-container { padding: 1.5rem 3rem 4rem !important; max-width: 1400px; }
