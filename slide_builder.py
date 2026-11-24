@@ -75,7 +75,7 @@ def _kpi_card(slide, label, value, l, t, bg_color=C_BLUE):
 
 
 # ── Slide 1: Title Slide ──────────────────────────────────────────────────────
-def slide_title(prs, report_name="2024 Annual Sales Report", subtitle="Automated Analytics Report", accent_color=None, logo_path=None):
+def slide_title(prs, report_name="2024 Annual Sales Report", subtitle="Automated Analytics Report", note: str = None, accent_color=None, logo_path=None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])   # blank layout
 
     # Background
@@ -99,11 +99,17 @@ def slide_title(prs, report_name="2024 Annual Sales Report", subtitle="Automated
         except Exception as e:
             print(f"⚠️ Could not stamp logo on title slide: {e}")
 
+    if note:
+        try:
+            slide.notes_slide.notes_text_frame.text = str(note)
+        except Exception:
+            pass
+
     return slide
 
 
 # ── Slide 2: KPI Overview ─────────────────────────────────────────────────────
-def slide_kpis(prs, kpis, insights, meta: dict = None, accent_color=None, logo_path=None):
+def slide_kpis(prs, kpis, insights, meta: dict = None, note: str = None, accent_color=None, logo_path=None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     header_color = accent_color if accent_color else C_DARK
     _add_rect(slide, 0, 0, 13.33, 1.1, header_color)
@@ -159,6 +165,12 @@ def slide_kpis(prs, kpis, insights, meta: dict = None, accent_color=None, logo_p
     for i, b in enumerate(bullets):
         _add_textbox(slide, b, 0.6, 4.75 + i * 0.65, 12.4, 0.5, size=12, color=C_DARK)
 
+    if note:
+        try:
+            slide.notes_slide.notes_text_frame.text = str(note)
+        except Exception:
+            pass
+
     return slide
 
 
@@ -188,6 +200,11 @@ def slide_trend(prs, chart_path, insights, title: str = None, note: str = None, 
                 f"Peak performance was achieved in {insights['best_month']}, while {insights['worst_month']} "
                 f"recorded lowest activity. We recommend planning resource and marketing allocation accordingly.")
     _add_textbox(slide, note, 0.5, 6.15, 12.5, 1.1, size=10, color=C_DARK)
+    if note:
+        try:
+            slide.notes_slide.notes_text_frame.text = str(note)
+        except Exception:
+            pass
     return slide
 
 
@@ -216,6 +233,11 @@ def slide_category_products(prs, chart_cat, chart_prod, insights, title: str = N
         note = (f"{insights['top_category']} leads portfolio volume. "
                 f"Focus on expanding high-margin offerings while reviewing cost structures.")
     _add_textbox(slide, note, 0.4, 5.6, 12.5, 1.5, size=10, color=C_DARK)
+    if note:
+        try:
+            slide.notes_slide.notes_text_frame.text = str(note)
+        except Exception:
+            pass
     return slide
 
 
@@ -250,6 +272,16 @@ def slide_region_recommendations(prs, chart_region, insights, title: str = None,
         _add_textbox(slide, title_item, 6.6, top + 0.08, 6.4, 0.38, size=11, bold=True, color=C_BLUE)
         _add_textbox(slide, body,  6.6, top + 0.48, 6.4, 0.75, size=10, color=C_DARK)
 
+    if not note:
+        note = (f"This slide provides regional distribution and actionable recommendations. "
+                f"Top performing region is {insights['top_region']} with dominant channel {insights['top_channel']}. "
+                f"We recommend prioritizing high-margin categories and scaling into top regions.")
+    if note:
+        try:
+            slide.notes_slide.notes_text_frame.text = str(note)
+        except Exception:
+            pass
+
     return slide
 
 
@@ -276,8 +308,8 @@ def build_presentation(report_data: dict, chart_paths: dict, report_title: str =
 
     print(f"📝  Building slide deck ({mode})...")
     subtitle_text = f"Executive Edition  |  {mode}"
-    slide_title(prs, report_name=report_title, subtitle=subtitle_text, accent_color=accent_rgb, logo_path=logo_path)
-    slide_kpis(prs, kpis, ins, meta=meta, accent_color=accent_rgb, logo_path=logo_path)
+    slide_title(prs, report_name=report_title, subtitle=subtitle_text, note=notes.get("slide_1"), accent_color=accent_rgb, logo_path=logo_path)
+    slide_kpis(prs, kpis, ins, meta=meta, note=notes.get("slide_2"), accent_color=accent_rgb, logo_path=logo_path)
     
     trend_header = meta.get("trend_title", "Monthly Trajectory & Trend")
     slide_trend(prs, chart_paths["monthly_trend"], ins, title=trend_header, note=notes.get("slide_3"), accent_color=accent_rgb, logo_path=logo_path)

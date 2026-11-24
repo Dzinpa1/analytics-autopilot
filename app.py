@@ -1163,45 +1163,69 @@ with tab_deck:
 
 
     # ─────────────────────────────────────────────────────────────────────────────
-    # POWERPOINT EXPORT PIPELINE (Session-Scoped Concurrency via tempfile)
+    # POWERPOINT EXPORT PIPELINE (Session-Scoped Concurrency via tempfile & Cached)
     # ─────────────────────────────────────────────────────────────────────────────
     st.markdown('<div class="section-title">One-Click Slide Deck Export</div>', unsafe_allow_html=True)
 
-    with st.spinner("Compiling PowerPoint deck..."):
-        import tempfile
-        from chart_engine   import generate_all_charts
-        from slide_builder  import build_presentation
+    if "pptx_cache" not in st.session_state:
+        st.session_state.pptx_cache = {}
 
-        # Synchronize user-selected top products ranking into report_data
-        report_data["top_products"] = prod_rank
+    logo_name = logo_file.name if ('logo_file' in locals() and logo_file) else None
+    bc_val = brand_color if 'brand_color' in locals() else None
+    top_n_val = top_n if 'top_n' in locals() else 5
+    pptx_cache_key = (
+        cache_key,
+        trend_style,
+        cat_style,
+        region_style,
+        top_metric,
+        top_n_val,
+        bc_val,
+        logo_name,
+        report_title,
+        report_mode,
+    )
 
-        chart_config = {
-            "trend_type":  trend_style,
-            "cat_type":    cat_style,
-            "region_type": region_style,
-            "top_metric":  top_metric,
-        }
+    if pptx_cache_key in st.session_state.pptx_cache:
+        pptx_bytes = st.session_state.pptx_cache[pptx_cache_key]
+    else:
+        with st.spinner("Compiling PowerPoint deck..."):
+            import tempfile
+            from chart_engine   import generate_all_charts
+            from slide_builder  import build_presentation
 
-        # Isolated temporary directory ensures simultaneous users never overwrite each other's charts/decks
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            logo_path = None
-            if 'logo_file' in locals() and logo_file:
-                logo_ext = logo_file.name.split('.')[-1]
-                logo_path = os.path.join(tmp_dir, f"brand_logo.{logo_ext}")
-                with open(logo_path, "wb") as f:
-                    f.write(logo_file.getbuffer())
+            # Synchronize user-selected top products ranking into report_data
+            report_data["top_products"] = prod_rank
 
-            chart_paths = generate_all_charts(report_data, config=chart_config, output_dir=tmp_dir)
-            pptx_path   = build_presentation(
-                report_data, chart_paths,
-                report_title=report_title,
-                narrative=narrative,
-                output_dir=tmp_dir,
-                brand_color=brand_color if 'brand_color' in locals() else None,
-                logo_path=logo_path
-            )
-            with open(pptx_path, "rb") as f:
-                pptx_bytes = f.read()
+            chart_config = {
+                "trend_type":  trend_style,
+                "cat_type":    cat_style,
+                "region_type": region_style,
+                "top_metric":  top_metric,
+            }
+
+            # Isolated temporary directory ensures simultaneous users never overwrite each other's charts/decks
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                logo_path = None
+                if 'logo_file' in locals() and logo_file:
+                    logo_ext = logo_file.name.split('.')[-1]
+                    logo_path = os.path.join(tmp_dir, f"brand_logo.{logo_ext}")
+                    with open(logo_path, "wb") as f:
+                        f.write(logo_file.getbuffer())
+
+                chart_paths = generate_all_charts(report_data, config=chart_config, output_dir=tmp_dir)
+                pptx_path   = build_presentation(
+                    report_data, chart_paths,
+                    report_title=report_title,
+                    narrative=narrative,
+                    output_dir=tmp_dir,
+                    brand_color=brand_color if 'brand_color' in locals() else None,
+                    logo_path=logo_path
+                )
+                with open(pptx_path, "rb") as f:
+                    pptx_bytes = f.read()
+
+            st.session_state.pptx_cache[pptx_cache_key] = pptx_bytes
 
     safe_title = report_title.replace(" ", "_")
     st.download_button(
