@@ -38,7 +38,7 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
 ### D. Niche Differentiation, Trust Polish & Deployment
 - [x] Add **"Report Mode" selector** in `app.py` (`Sales & Retail Performance`, `Marketing & Ad Campaign ROI`, `Operations & Expense Tracker`) adapting KPI labels, Gemini prompts, and slide titles.
 - [x] **Anomaly & Outlier Flags:** Add a quick Z-score / IQR check in `analysis_engine.py` on time-series metrics so notable spikes or drops are flagged in the summary JSON for Gemini to highlight.
-- [ ] **Data Health & Cleaning Audit Log:** Record automated cleaning steps in `analysis_engine.py` (e.g., rows cleaned, currency symbols stripped, missing values handled) and display a compact "Data Hygiene" summary in the UI.
+- [x] **Data Health & Cleaning Audit Log:** Record automated cleaning steps in `analysis_engine.py` (e.g., rows cleaned, currency symbols stripped, missing values handled) and display a compact "Data Hygiene" summary in the UI.
 - [x] Replace the shared `output/` directory in `chart_engine.py` and `slide_builder.py` with `tempfile.TemporaryDirectory()` (or session-scoped paths) so simultaneous users never overwrite each other's charts/decks.
 - [x] Merge `ui-redesign` branch cleanly into `main` once sidebar layout & CSS polish are verified.
 - [ ] Deploy live to **Streamlit Community Cloud** and share with 10–15 beta testers for real-world feedback.
