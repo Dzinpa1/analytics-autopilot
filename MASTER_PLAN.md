@@ -25,21 +25,22 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
 - [x] Linear Obsidian Streamlit UI with dynamic chart-type switchers & interactive 16:9 slide preview (`app.py`)
 
 ### B. Immediate Bug Fixes & Code Consolidation
-- [x] Pass user's custom `report_title` from `app.py` into `build_presentation()` -> `slide_title()` in `slide_builder.py` (currently hardcoded to `"2024 Annual Sales Report"`).
+- [x] Pass user's custom `report_title` from `app.py` into `build_presentation()` -> `slide_title()` in `slide_builder.py`.
 - [x] Refactor `app.py` to call `analysis_engine.py` (`build_report()`) instead of duplicating KPI/groupby calculations inline.
-- [x] Harden `analysis_engine.py` for messy real-world uploads: strip currency symbols (`$`, `GHS`, commas) before numeric conversion, handle missing `Profit`/`Cost` columns gracefully (allow "None / Not Available"), and wrap uploads in friendly `try/except` alerts.
-- [x] Fix `chart_engine.py` PNG export reliability (ensure `kaleido` works cleanly or add a reliable fallback image generator so `slide_builder.py` never receives an `.html` file).
+- [x] Harden `analysis_engine.py` for messy real-world uploads (currency symbols, missing `Profit`/`Cost` columns, friendly `try/except` alerts).
+- [x] Fix `chart_engine.py` PNG export reliability so `slide_builder.py` never receives an `.html` file.
 
 ### C. AI Narrative Integration (v0.3)
-- [x] Create `ai_narrator.py` using the Gemini API (`google-genai`) with API keys stored safely in `.env` (local) and `st.secrets` (cloud) — never hardcoded.
-- [x] Feed ONLY the structured KPI/insights JSON from `analysis_engine.py` into Gemini to generate tailored executive takeaways, 4 strategic recommendations, and slide-by-slide speaker notes.
-- [x] Keep our existing deterministic template text as an automatic fallback if the API key is missing or the API call fails.
-- [x] Cache AI responses in `st.session_state` so changing chart styles or clicking slide tabs does NOT re-trigger paid Gemini API calls.
+- [x] Create `ai_narrator.py` using the Gemini API (`google-genai`) with API keys stored safely in `.env` and `st.secrets`.
+- [x] Feed ONLY structured KPI/insights JSON from `analysis_engine.py` into Gemini for executive takeaways, strategic recommendations, and speaker notes.
+- [x] Keep deterministic template text as automatic fallback and cache AI responses in `st.session_state`.
 
-### D. Niche Differentiation, Concurrency & Deployment
-- [x] Add a **"Report Mode" selector** in `app.py` (`Sales & Retail Performance`, `Marketing & Ad Campaign ROI`, `Operations & Expense Tracker`) that adapts KPI labels in `analysis_engine.py`, prompt framing in `ai_narrator.py`, and slide titles in `slide_builder.py`.
+### D. Niche Differentiation, Trust Polish & Deployment
+- [x] Add **"Report Mode" selector** in `app.py` (`Sales & Retail Performance`, `Marketing & Ad Campaign ROI`, `Operations & Expense Tracker`) adapting KPI labels, Gemini prompts, and slide titles.
+- [ ] **Anomaly & Outlier Flags:** Add a quick Z-score / IQR check in `analysis_engine.py` on time-series metrics so notable spikes or drops are flagged in the summary JSON for Gemini to highlight.
+- [ ] **Data Health & Cleaning Audit Log:** Record automated cleaning steps in `analysis_engine.py` (e.g., rows cleaned, currency symbols stripped, missing values handled) and display a compact "Data Hygiene" summary in the UI.
 - [x] Replace the shared `output/` directory in `chart_engine.py` and `slide_builder.py` with `tempfile.TemporaryDirectory()` (or session-scoped paths) so simultaneous users never overwrite each other's charts/decks.
-- [x] Add Custom Branding v0.2 (optional company logo upload + primary accent color picker passed into `slide_builder.py`).
+- [x] Merge `ui-redesign` branch cleanly into `main` once sidebar layout & CSS polish are verified.
 - [ ] Deploy live to **Streamlit Community Cloud** and share with 10–15 beta testers for real-world feedback.
 
 ## 4. PHASE 2: Commercial SaaS Product (v1.0 Paid Full-Stack)
@@ -48,4 +49,6 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
 - [ ] **Decouple Backend & Frontend:** Wrap `analysis_engine.py`, `chart_engine.py`, `ai_narrator.py`, and `slide_builder.py` inside a **FastAPI** backend; build a **React / Next.js** frontend.
 - [ ] **Auth & Database:** Set up **Supabase** (PostgreSQL + Auth + Storage) with user accounts, usage credits, and automatic 1-hour deletion of uploaded datasets.
 - [ ] **Security & Rate Limiting:** Validate real file headers on upload, sanitize cells against formula injection, lock down CORS, and rate-limit endpoints to protect Gemini API credits.
+- [ ] **Multi-File Comparison Mode (MoM / Budget vs. Actuals):** Allow uploading two datasets (e.g., Last Month vs. This Month, or Budget vs. Actuals) to compute exact variance metrics and AI variance commentary.
+- [ ] **"What-If" Sensitivity Simulator:** Interactive sliders in the frontend (e.g., +5% price, -8% cost) that recalculate projected profit margins in real time and append a "Projected Scenario" slide to the `.pptx`.
 - [ ] **Payments & Tiers:** Add Free Tier (2 decks/month, watermarked) vs. Pro Tier ($15–$29/mo or GHS equivalent, unlimited decks, custom brand kit) via **Paystack** (Ghana/Africa cards & Mobile Money) and/or **Stripe / Lemon Squeezy**.
