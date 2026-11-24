@@ -732,10 +732,23 @@ with tab_dash:
     st.markdown(f'<div class="section-title">Core Performance Indicators <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;margin-left:8px;">{report_mode}</span></div>', unsafe_allow_html=True)
 
     if narrative.get("executive_summary"):
+        anomalies = insights.get("anomalies", [])
+        anom_badge = ""
+        if anomalies:
+            top_a = anomalies[0]
+            anom_color = "#34D399" if top_a["type"] == "Surge" else "#F87171"
+            anom_bg = "rgba(16, 185, 129, 0.12)" if top_a["type"] == "Surge" else "rgba(248, 113, 113, 0.12)"
+            anom_border = "rgba(16, 185, 129, 0.3)" if top_a["type"] == "Surge" else "rgba(248, 113, 113, 0.3)"
+            anom_badge = f"""
+            <div style="margin-top:10px;padding:6px 12px;border-radius:8px;background:{anom_bg};border:1px solid {anom_border};font-size:12px;color:#F8FAFC;display:inline-flex;align-items:center;gap:6px;">
+                <span style="font-weight:700;color:{anom_color};">⚡ STATISTICAL {top_a['type'].upper()} DETECTED:</span>
+                {top_a['period']} recorded {top_a['pct_diff_mean']:+.1f}% vs. baseline ({top_a['z_score']:+.2f}σ deviation)
+            </div>
+            """
         st.markdown(f"""
         <div style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(56,189,248,0.04));border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:14px 18px;margin-bottom:20px;font-size:13px;color:#E2E8F0;line-height:1.6;">
-            <span style="font-weight:700;color:#A5B4FC;margin-right:8px;">✦ EXECUTIVE BRIEFING:</span>
-            {narrative['executive_summary']}
+            <div><span style="font-weight:700;color:#A5B4FC;margin-right:8px;">✦ EXECUTIVE BRIEFING:</span>{narrative['executive_summary']}</div>
+            {anom_badge}
         </div>
         """, unsafe_allow_html=True)
 
@@ -801,7 +814,8 @@ with tab_dash:
         st.markdown('<div class="chart-box">', unsafe_allow_html=True)
         c1_head, c1_ctrl = st.columns([2, 1])
         with c1_head:
-            st.markdown('<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Monthly Performance</div>', unsafe_allow_html=True)
+            anom_pill = f'<span style="font-size:10px;font-weight:700;color:#FBBF24;background:rgba(245,158,11,0.15);padding:2px 7px;border-radius:10px;border:1px solid rgba(245,158,11,0.3);margin-left:6px;">⚡ {len(anomalies)} Outlier{"s" if len(anomalies) > 1 else ""}</span>' if anomalies else ""
+            st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Monthly Performance{anom_pill}</div>', unsafe_allow_html=True)
         with c1_ctrl:
             trend_style = st.selectbox("Style", ["Grouped Bars", "Line & Area", "MoM Growth %"], key="ctrl_trend", label_visibility="collapsed")
 

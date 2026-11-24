@@ -57,6 +57,9 @@ def get_deterministic_fallback(report_data: dict, report_title: str = "Executive
     top_cat = ins.get("top_category", "Core Offerings")
     top_region = ins.get("top_region", "Primary Market")
 
+    anom_list = ins.get("anomalies", [])
+    anom_phrase = f" Notably, {anom_list[0]['period']} experienced an abnormal {anom_list[0]['type'].lower()} ({anom_list[0]['pct_diff_mean']:+.1f}% vs. mean)." if anom_list else ""
+
     margin_str = f"{profit_margin:.1f}%" if profit_margin is not None else "healthy"
     rev_str = f"${total_revenue:,.0f}" if total_revenue else "$0"
     aov_str = f"${avg_order_val:,.2f}" if avg_order_val else "$0"
@@ -67,7 +70,7 @@ def get_deterministic_fallback(report_data: dict, report_title: str = "Executive
             "report_mode": mode,
             "executive_summary": (
                 f"During this campaign cycle, total ad spend reached {rev_str} across {total_orders:,} verified conversions. "
-                f"Acquisition velocity was driven by {top_cat}, while {top_region} demonstrated the strongest regional ROAS profile."
+                f"Acquisition velocity was driven by {top_cat}, while {top_region} demonstrated the strongest regional ROAS profile.{anom_phrase}"
             ),
             "takeaways": [
                 {
@@ -126,7 +129,7 @@ def get_deterministic_fallback(report_data: dict, report_title: str = "Executive
             "report_mode": mode,
             "executive_summary": (
                 f"Across this operational review cycle, managed budget reached {rev_str} processing {total_orders:,} operational work units. "
-                f"Resource demand was concentrated in {top_cat}, with {top_region} operating as the primary regional facility anchor."
+                f"Resource demand was concentrated in {top_cat}, with {top_region} operating as the primary regional facility anchor.{anom_phrase}"
             ),
             "takeaways": [
                 {
@@ -185,7 +188,7 @@ def get_deterministic_fallback(report_data: dict, report_title: str = "Executive
             "report_mode": mode,
             "executive_summary": (
                 f"During this performance cycle, gross revenue reached {rev_str} across {total_orders:,} transactions. "
-                f"Portfolio velocity was led by {top_cat}, while {top_region} remained the primary regional demand anchor."
+                f"Portfolio velocity was led by {top_cat}, while {top_region} remained the primary regional demand anchor.{anom_phrase}"
             ),
             "takeaways": [
                 {
@@ -275,6 +278,8 @@ def generate_narrative(report_data: dict, report_title: str = "Executive Report"
             "top_category": ins.get("top_category"),
             "top_region": ins.get("top_region"),
             "top_channel": ins.get("top_channel"),
+            "statistical_anomalies": ins.get("anomalies", []),
+            "anomaly_headline": ins.get("anomaly_headline", ""),
         }
 
         # Add report mode to payload
@@ -295,7 +300,7 @@ VERIFIED DATA (Do NOT invent or alter any numbers):
 {json.dumps(payload, indent=2)}
 
 Requirements:
-1. executive_summary: A 2-3 sentence strategic executive briefing tailored to the '{mode}' context, highlighting financial health, peak performance, and strategic outlook.
+1. executive_summary: A 2-3 sentence strategic executive briefing tailored to the '{mode}' context, highlighting financial health, peak performance, and strategic outlook. If statistical anomalies are present in 'statistical_anomalies', explicitly reference the primary outlier surge or contraction.
 2. takeaways: An array of exactly 3 insight items tailored to this workflow. Each item must have:
    - "icon": an appropriate emoji (e.g., "🎯", "⚡", "📈")
    - "title": a 3-5 word executive label

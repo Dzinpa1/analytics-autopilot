@@ -79,6 +79,48 @@ def monthly_trend(df: pd.DataFrame, has_profit: bool = True) -> pd.DataFrame:
     return monthly
 
 
+def detect_time_series_anomalies(monthly: pd.DataFrame, z_threshold: float = 1.5, mom_threshold: float = 35.0) -> list:
+    """
+    Statistical anomaly detection on time-series monthly revenue.
+    Identifies significant surges and contractions using Z-score and MoM acceleration.
+    Returns a sorted list of anomaly records (greatest deviation first).
+    """
+    if monthly is None or len(monthly) < 3 or "Revenue" not in monthly.columns:
+        return []
+
+    rev_mean = monthly["Revenue"].mean()
+    rev_std  = monthly["Revenue"].std()
+
+    if rev_std == 0 or pd.isna(rev_std):
+        return []
+
+    anomalies = []
+    for _, row in monthly.iterrows():
+        rev = row["Revenue"]
+        z = (rev - rev_mean) / rev_std
+        mom = row["MoM_Growth"] if "MoM_Growth" in row and not pd.isna(row["MoM_Growth"]) else 0.0
+        pct_diff = ((rev - rev_mean) / rev_mean * 100) if rev_mean != 0 else 0.0
+
+        is_spike = (z >= z_threshold) or (mom >= mom_threshold and z >= 1.0)
+        is_drop  = (z <= -z_threshold) or (mom <= -mom_threshold and z <= -1.0)
+
+        if is_spike or is_drop:
+            anom_type = "Surge" if is_spike else "Contraction"
+            anomalies.append({
+                "period": str(row.get("Month_Label", str(row.get("Month", "Unknown")))),
+                "type": anom_type,
+                "metric": "Revenue",
+                "value": round(float(rev), 2),
+                "z_score": round(float(z), 2),
+                "pct_diff_mean": round(float(pct_diff), 1),
+                "mom_growth": round(float(mom), 1),
+                "severity": "High" if abs(z) >= 2.0 else "Moderate",
+                "summary": f"{row.get('Month_Label', 'Month')}: {anom_type} of ${float(rev):,.0f} ({z:+.2f}σ, {pct_diff:+.1f}% vs. mean)",
+            })
+
+    return sorted(anomalies, key=lambda a: abs(a["z_score"]), reverse=True)
+
+
 def category_breakdown(df: pd.DataFrame, has_profit: bool = True) -> pd.DataFrame:
     agg_dict = {"Revenue": ("Revenue", "sum"), "Orders": ("Revenue", "count")}
     if has_profit and "Profit" in df.columns:
@@ -289,6 +331,14 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     top_region = region.iloc[0]["Region"] if not region.empty else "Global"
     top_channel = channels.iloc[0]["Channel"] if not channels.empty else "Direct"
 
+    anomalies = detect_time_series_anomalies(monthly)
+    has_anomalies = len(anomalies) > 0
+    if has_anomalies:
+        top_anom = anomalies[0]
+        anomaly_headline = f"{top_anom['period']} experienced a statistical {top_anom['type'].lower()} ({top_anom['z_score']:+.2f}σ, {top_anom['pct_diff_mean']:+.1f}% vs. mean)."
+    else:
+        anomaly_headline = "Trajectory remained within expected ±1.5σ historical bounds with no abnormal volatility."
+
     return {
         "df":           clean_df,
         "kpis":         kpis,
@@ -300,12 +350,15 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
         "report_mode":  report_mode,
         "meta":         get_mode_kpi_labels(report_mode),
         "insights": {
-            "best_month":     best_month,
-            "worst_month":    worst_month,
-            "avg_mom_growth": round(avg_mom_growth, 2) if not pd.isna(avg_mom_growth) else 0.0,
-            "top_category":   top_cat,
-            "top_region":     top_region,
-            "top_channel":    top_channel,
+            "best_month":        best_month,
+            "worst_month":       worst_month,
+            "avg_mom_growth":    round(avg_mom_growth, 2) if not pd.isna(avg_mom_growth) else 0.0,
+            "top_category":      top_cat,
+            "top_region":        top_region,
+            "top_channel":       top_channel,
+            "anomalies":         anomalies,
+            "has_anomalies":     has_anomalies,
+            "anomaly_headline":  anomaly_headline,
         }
     }
 
