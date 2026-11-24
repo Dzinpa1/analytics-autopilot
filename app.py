@@ -37,8 +37,11 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     background-color: #0E131F !important;
     border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
+[data-testid="stSidebarHeader"] {
+    display: none !important;
+}
 [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
-    padding: 1.5rem 1.25rem 3rem !important;
+    padding: 1.25rem 1.25rem 3rem !important;
 }
 [data-testid="stHeader"]  { background: transparent !important; }
 .block-container { padding: 1.5rem 3rem 4rem !important; max-width: 1400px; }
