@@ -278,7 +278,8 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 .deck-stage {
     width: 100%;
     max-width: 920px;
-    min-height: 440px;
+    min-height: 460px;
+    aspect-ratio: 16 / 9;
     background: radial-gradient(circle at 80% 20%, #172033 0%, #0F172A 100%);
     border: 1px solid #1F2937;
     border-radius: 12px;
@@ -318,7 +319,7 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     font-weight: 600;
 }
 .slide-footer-meta {
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid #1F2937;
     padding-top: 14px;
     display: flex;
     justify-content: space-between;
@@ -371,7 +372,7 @@ button[kind="primary"]:hover {
 .stTabs [data-baseweb="tab-list"] {
     gap: 10px !important;
     background-color: transparent !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-bottom: 1px solid #1F2937 !important;
     margin-bottom: 24px !important;
 }
 .stTabs [data-baseweb="tab"] {
@@ -396,6 +397,80 @@ button[kind="primary"]:hover {
     color: #A5B4FC !important;
     border-color: #1F2937 !important;
     border-bottom: 2px solid #6366F1 !important;
+}
+
+/* Secondary Buttons (Slide Selectors & Nav) */
+button[kind="secondary"] {
+    background-color: #111827 !important;
+    border: 1px solid #1F2937 !important;
+    color: #CBD5E1 !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+    transition: all 0.15s ease !important;
+}
+button[kind="secondary"]:hover {
+    border-color: rgba(99, 102, 241, 0.5) !important;
+    color: #F8FAFC !important;
+    background-color: #1F2937 !important;
+}
+button[kind="secondary"]:disabled {
+    opacity: 0.35 !important;
+    border-color: #1F2937 !important;
+}
+
+/* Sidebar Expanders */
+[data-testid="stExpander"] {
+    background-color: #111827 !important;
+    border: 1px solid #1F2937 !important;
+    border-radius: 10px !important;
+    margin-bottom: 12px !important;
+    overflow: hidden !important;
+}
+[data-testid="stExpander"] summary {
+    color: #CBD5E1 !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    padding: 10px 14px !important;
+    transition: color 0.15s ease !important;
+}
+[data-testid="stExpander"] summary:hover {
+    color: #818CF8 !important;
+}
+[data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+    background-color: #0D1322 !important;
+    border-top: 1px solid #1F2937 !important;
+    padding: 14px !important;
+}
+
+/* Custom Selectbox Theme */
+div[data-baseweb="select"] > div {
+    background-color: #111827 !important;
+    border: 1px solid #1F2937 !important;
+    border-radius: 8px !important;
+    color: #F8FAFC !important;
+}
+div[data-baseweb="select"] > div:hover {
+    border-color: #6366F1 !important;
+}
+
+/* Responsive Grid Breakpoints */
+@media (max-width: 1024px) {
+    .kpi-row {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+    .insight-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+@media (max-width: 640px) {
+    .kpi-row {
+        grid-template-columns: 1fr !important;
+    }
+    .block-container {
+        padding: 1rem 1rem 3rem !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
