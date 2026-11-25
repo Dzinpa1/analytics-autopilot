@@ -891,6 +891,30 @@ with st.sidebar:
             help="Download 3-tab verified Excel file with Cleaned Data, Audit Trail, and Quarantined Rows."
         )
 
+clean_df = report_data.get("df", df)
+time_scopes = report_data.get("time_scopes", {})
+scope_options = time_scopes.get("scope_options", [{"id": "all", "label": "Full Dataset"}])
+scope_labels = [s["label"] for s in scope_options]
+scope_id_map = {s["label"]: s["id"] for s in scope_options}
+
+active_scope_label = st.session_state.get("global_time_scope", scope_labels[0] if scope_labels else "Full Dataset")
+active_scope_id = scope_id_map.get(active_scope_label, "all")
+
+from analysis_engine import filter_df_by_time_scope, compute_kpis, category_breakdown, region_breakdown
+scoped_df, active_scope_name = filter_df_by_time_scope(clean_df, active_scope_id)
+if scoped_df is None or scoped_df.empty:
+    scoped_df = clean_df
+    active_scope_name = "Full Period"
+
+if active_scope_id != "all":
+    kpis = compute_kpis(scoped_df, has_profit=report_data["kpis"].get("has_profit", True), report_mode=report_mode)
+    category = category_breakdown(scoped_df, has_profit=report_data["kpis"].get("has_profit", True))
+    region_df = region_breakdown(scoped_df)
+else:
+    kpis = report_data["kpis"]
+    category = report_data["category"]
+    region_df = report_data["region"]
+
 has_profit    = kpis.get("has_profit", True)
 total_revenue = kpis["total_revenue"]
 total_profit  = kpis["total_profit"]
@@ -930,10 +954,15 @@ margin_display = kpis.get("efficiency_display") or (f"{profit_margin:.1f}%" if p
 margin_pill    = kpis.get("efficiency_status") or ("Target: >35.0%" if (profit_margin or 0) >= 35.0 else "Below 35% Target")
 margin_pill_class = kpis.get("efficiency_pill_class") or ("pill-purple" if (profit_margin or 0) >= 35.0 else "pill-amber")
 
-# True CMGR with dynamic directional arrow
-growth_label = insights.get("growth_label") or (f"↑ {mom_avg:.1f}% Avg MoM" if mom_avg >= 0 else f"↓ {mom_avg:.1f}% Avg MoM")
-growth_arrow = insights.get("growth_arrow", "↑" if mom_avg >= 0 else "↓")
-growth_pill_class = "pill-blue" if growth_arrow == "↑" else "pill-amber"
+# True CMGR with dynamic directional arrow or scope badge
+if active_scope_id != "all":
+    growth_label = f"🔭 {active_scope_name}"
+    growth_pill_class = "pill-blue"
+    growth_arrow = "↑"
+else:
+    growth_label = insights.get("growth_label") or (f"↑ {mom_avg:.1f}% Avg MoM" if mom_avg >= 0 else f"↓ {mom_avg:.1f}% Avg MoM")
+    growth_arrow = insights.get("growth_arrow", "↑" if mom_avg >= 0 else "↓")
+    growth_pill_class = "pill-blue" if growth_arrow == "↑" else "pill-amber"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AI NARRATIVE GENERATION (On-Demand & Session Cached)
@@ -987,14 +1016,28 @@ tab_dash, tab_deck = st.tabs(["📊 Executive Dashboard", "🖥️ Slide Deck Pr
 
 with tab_dash:
     # ─────────────────────────────────────────────────────────────────────────────
-    # KPI CARDS (Linear Obsidian Style)
+    # EXECUTIVE TIME SCOPE & DATA STATUS BAR
     # ─────────────────────────────────────────────────────────────────────────────
     status_suffix = "Certified" if hygiene.get("health_score", 100) == 100 else "Sanitized"
     hygiene_pill = f'<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);color:#34D399;margin-left:8px;">✔ {hygiene.get("clean_row_count", len(df)):,} Records {status_suffix}</span>'
 
-    col_kpi_head, col_kpi_dl = st.columns([3, 1])
+    time_scopes = report_data.get("time_scopes", {})
+    scope_options = time_scopes.get("scope_options", [{"id": "all", "label": "Full Dataset"}])
+    scope_labels = [s["label"] for s in scope_options]
+    sel_idx = scope_labels.index(active_scope_label) if active_scope_label in scope_labels else 0
+
+    col_kpi_head, col_scope, col_kpi_dl = st.columns([1.6, 1.4, 1.0])
     with col_kpi_head:
-        st.markdown(f'<div class="section-title" style="margin-bottom:0;padding-top:4px;">Core Performance Indicators <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;margin-left:8px;">{h(report_mode)}</span>{hygiene_pill}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-title" style="margin-bottom:0;padding-top:6px;">Core Performance Indicators <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;margin-left:8px;">{h(report_mode)}</span>{hygiene_pill}</div>', unsafe_allow_html=True)
+    with col_scope:
+        sel_scope_label = st.selectbox(
+            "Executive Time Scope",
+            scope_labels,
+            index=sel_idx,
+            key="global_time_scope",
+            label_visibility="collapsed",
+            help="Filter entire dashboard (KPIs, Charts, Breakdowns, & Slide Deck) by time horizon"
+        )
     with col_kpi_dl:
         st.download_button(
             label="📥 Cleaned Data (.xlsx)",
@@ -1124,7 +1167,7 @@ with tab_dash:
 
         from analysis_engine import compute_adaptive_time_series
         active_series, active_insights = compute_adaptive_time_series(
-            report_data.get("df", df),
+            scoped_df,
             target_year=target_yr,
             granularity=sel_gran,
             has_profit=has_profit,
@@ -1279,29 +1322,39 @@ with tab_dash:
 
     with ch4:
         st.markdown('<div class="chart-box">', unsafe_allow_html=True)
-        c4_head, c4_c1, c4_c2 = st.columns([2, 1, 1])
+        c4_head, c4_cat, c4_c1, c4_c2 = st.columns([1.5, 1.3, 1.1, 0.7])
         with c4_head:
             st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Product Leaderboard</div>', unsafe_allow_html=True)
+        with c4_cat:
+            cat_filter_opts = ["All Categories"]
+            if cat_col in scoped_df.columns:
+                cat_filter_opts += sorted([str(c) for c in scoped_df[cat_col].dropna().unique().tolist()])
+            sel_cat = st.selectbox("Category", cat_filter_opts, key="ctrl_prod_cat", label_visibility="collapsed", help="Filter products by category vertical")
         with c4_c1:
             metric_options = ["Revenue", "Profit", "Quantity"] if has_profit else ["Revenue", "Quantity"]
             top_metric = st.selectbox("Metric", metric_options, key="ctrl_metric", label_visibility="collapsed")
         with c4_c2:
             top_n = st.selectbox("Count", [5, 10], key="ctrl_count", label_visibility="collapsed")
 
-        # Aggregate dynamically using normalized clean_df
-        clean_df = report_data.get("df", df)
-        prod_col_name = "Product" if "Product" in clean_df.columns else ("Category" if "Category" in clean_df.columns else cat_col)
+        # Aggregate dynamically using scoped_df and category filter
+        prod_df_slice = scoped_df
+        if sel_cat != "All Categories" and cat_col in prod_df_slice.columns:
+            cat_filtered = prod_df_slice[prod_df_slice[cat_col] == sel_cat]
+            if not cat_filtered.empty:
+                prod_df_slice = cat_filtered
+
+        prod_col_name = "Product" if "Product" in prod_df_slice.columns else ("Category" if "Category" in prod_df_slice.columns else cat_col)
 
         agg_spec = {
             "Revenue": ("Revenue", "sum"),
-            "Quantity": ("Quantity", "sum") if "Quantity" in clean_df.columns else ("Revenue", "count")
+            "Quantity": ("Quantity", "sum") if "Quantity" in prod_df_slice.columns else ("Revenue", "count")
         }
-        if has_profit and "Profit" in clean_df.columns:
+        if has_profit and "Profit" in prod_df_slice.columns:
             agg_spec["Profit"] = ("Profit", "sum")
         else:
             agg_spec["Profit"] = ("Revenue", lambda s: 0.0)
 
-        prod_rank = clean_df.groupby(prod_col_name).agg(**agg_spec).reset_index().rename(columns={prod_col_name: "Product"})
+        prod_rank = prod_df_slice.groupby(prod_col_name).agg(**agg_spec).reset_index().rename(columns={prod_col_name: "Product"})
         prod_rank = prod_rank.sort_values(top_metric, ascending=False).head(top_n)
 
         is_curr = top_metric in ["Revenue", "Profit"]
@@ -1315,7 +1368,8 @@ with tab_dash:
             fig4.update_yaxes(tickprefix=curr_sym, tickformat=",.0f")
         else:
             fig4.update_yaxes(tickformat=",.0f")
-        st.plotly_chart(style_chart(fig4, f"Top {top_n} Products by {top_metric}"), use_container_width=True)
+        prod_chart_title = f"Top {top_n} {sel_cat} by {top_metric}" if sel_cat != "All Categories" else f"Top {top_n} Products by {top_metric}"
+        st.plotly_chart(style_chart(fig4, prod_chart_title), use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -1474,10 +1528,13 @@ with tab_deck:
     logo_name = logo_file.name if ('logo_file' in locals() and logo_file) else None
     bc_val = brand_color if 'brand_color' in locals() else None
     bn_val = brand_name if 'brand_name' in locals() else None
+    active_prod_cat   = st.session_state.get("ctrl_prod_cat", "All Categories")
     active_drill_year = st.session_state.get("drill_year", "All")
     active_drill_gran = st.session_state.get("drill_gran", "Monthly")
     pptx_cache_key = (
         data_hash,
+        active_scope_id,
+        active_prod_cat,
         active_trend,
         active_cat,
         active_region,
@@ -1493,7 +1550,8 @@ with tab_deck:
         curr_sym,
     )
 
-    safe_title = report_title.replace(" ", "_")
+    export_report_title = f"{report_title} ({active_scope_name})" if active_scope_id != "all" else report_title
+    safe_title = export_report_title.replace(" ", "_")
 
     if pptx_cache_key in st.session_state.pptx_cache:
         col_dl, col_rebuild = st.columns([3, 1])
@@ -1519,21 +1577,33 @@ with tab_deck:
                 from chart_engine   import generate_all_charts
                 from slide_builder  import build_presentation
 
-                # Synchronize ranking and aggregation dynamically with active metric and count
-                clean_df = report_data.get("df", df)
-                prod_col_name = "Product" if "Product" in clean_df.columns else ("Category" if "Category" in clean_df.columns else cat_col)
+                # Synchronize ranking and aggregation dynamically with active metric, count, and category filter
+                prod_df_slice = scoped_df
+                if active_prod_cat != "All Categories" and cat_col in prod_df_slice.columns:
+                    cat_filtered = prod_df_slice[prod_df_slice[cat_col] == active_prod_cat]
+                    if not cat_filtered.empty:
+                        prod_df_slice = cat_filtered
+
+                prod_col_name = "Product" if "Product" in prod_df_slice.columns else ("Category" if "Category" in prod_df_slice.columns else cat_col)
                 agg_spec = {
                     "Revenue": ("Revenue", "sum"),
-                    "Quantity": ("Quantity", "sum") if "Quantity" in clean_df.columns else ("Revenue", "count")
+                    "Quantity": ("Quantity", "sum") if "Quantity" in prod_df_slice.columns else ("Revenue", "count")
                 }
-                if has_profit and "Profit" in clean_df.columns:
+                if has_profit and "Profit" in prod_df_slice.columns:
                     agg_spec["Profit"] = ("Profit", "sum")
                 else:
                     agg_spec["Profit"] = ("Revenue", lambda s: 0.0)
 
-                sync_rank = clean_df.groupby(prod_col_name).agg(**agg_spec).reset_index().rename(columns={prod_col_name: "Product"})
+                sync_rank = prod_df_slice.groupby(prod_col_name).agg(**agg_spec).reset_index().rename(columns={prod_col_name: "Product"})
                 sync_rank = sync_rank.sort_values(active_metric, ascending=False).head(active_top_n)
-                report_data["top_products"] = sync_rank
+
+                # Assemble presentation report data with active scope and filters
+                presentation_report = dict(report_data)
+                presentation_report["df"] = scoped_df
+                presentation_report["kpis"] = kpis
+                presentation_report["category"] = category
+                presentation_report["region"] = region_df
+                presentation_report["top_products"] = sync_rank
 
                 chart_config = {
                     "trend_type":  active_trend,
@@ -1552,14 +1622,14 @@ with tab_deck:
                         with open(logo_path, "wb") as f:
                             f.write(logo_file.getbuffer())
 
-                    chart_paths = generate_all_charts(report_data, config=chart_config, output_dir=tmp_dir)
+                    chart_paths = generate_all_charts(presentation_report, config=chart_config, output_dir=tmp_dir)
                     export_warns = chart_engine.get_export_warnings()
                     if export_warns:
                         st.warning(f"⚠️ Chart export notice: {export_warns[0]}")
 
                     pptx_path   = build_presentation(
-                        report_data, chart_paths,
-                        report_title=report_title,
+                        presentation_report, chart_paths,
+                        report_title=export_report_title,
                         narrative=narrative,
                         output_dir=tmp_dir,
                         brand_color=bc_val,

@@ -406,7 +406,86 @@ def get_available_time_scopes(df: pd.DataFrame) -> dict:
         "granularities": granularities,
         "unique_months": unique_months,
         "span_days": span_days,
+        "scope_options": get_time_scope_options(df),
     }
+
+
+def get_time_scope_options(df: pd.DataFrame) -> list[dict]:
+    """
+    Builds a list of intuitive executive time scopes (Full Timeline, Specific Years, Quarters, Months)
+    available in the dataset.
+    """
+    if df is None or "Date" not in df.columns or df["Date"].dropna().empty:
+        return [{"id": "all", "label": "Full Dataset"}]
+
+    valid_dates = pd.to_datetime(df["Date"].dropna(), errors="coerce").dropna()
+    if valid_dates.empty:
+        return [{"id": "all", "label": "Full Dataset"}]
+
+    years = sorted([int(y) for y in valid_dates.dt.year.unique()])
+    is_multi_year = len(years) > 1
+    options = []
+
+    if is_multi_year:
+        options.append({"id": "all", "label": f"Full Timeline ({years[0]} - {years[-1]})"})
+        for y in reversed(years):
+            options.append({"id": f"year_{y}", "label": f"FY {y} (Full Year)"})
+        quarters = sorted(valid_dates.dt.to_period("Q").unique())
+        for q in reversed(quarters):
+            options.append({"id": f"q_{q}", "label": f"Q{q.quarter} {q.year}"})
+    else:
+        y = years[0]
+        options.append({"id": "all", "label": f"Full Year ({y})"})
+        quarters = sorted(valid_dates.dt.to_period("Q").unique())
+        if len(quarters) > 1:
+            q_names = {1: "Jan - Mar", 2: "Apr - Jun", 3: "Jul - Sep", 4: "Oct - Dec"}
+            for q in quarters:
+                name_range = q_names.get(q.quarter, "")
+                options.append({"id": f"q_{q}", "label": f"Q{q.quarter} {y} ({name_range})"})
+
+        months = sorted(valid_dates.dt.to_period("M").unique())
+        if len(months) > 1 and len(months) <= 12:
+            for m in months:
+                options.append({"id": f"m_{m}", "label": m.strftime("%B %Y")})
+
+    return options
+
+
+def filter_df_by_time_scope(df: pd.DataFrame, scope_id: str) -> tuple[pd.DataFrame, str]:
+    """
+    Filters a DataFrame by a chosen scope_id ('all', 'year_2024', 'q_2024Q1', 'm_2024-05').
+    Returns (filtered_df, scope_label).
+    """
+    if df is None or df.empty or "Date" not in df.columns or not scope_id or scope_id == "all":
+        return df, "Full Period"
+
+    df_copy = df.copy()
+    valid_dates = pd.to_datetime(df_copy["Date"], errors="coerce")
+
+    if scope_id.startswith("year_"):
+        y = int(scope_id.split("_")[1])
+        mask = valid_dates.dt.year == y
+        return df_copy[mask].copy(), f"FY {y}"
+
+    elif scope_id.startswith("q_"):
+        q_str = scope_id.split("_", 1)[1]
+        try:
+            target_q = pd.Period(q_str, freq="Q")
+            mask = valid_dates.dt.to_period("Q") == target_q
+            return df_copy[mask].copy(), f"Q{target_q.quarter} {target_q.year}"
+        except Exception:
+            return df_copy, "Full Period"
+
+    elif scope_id.startswith("m_"):
+        m_str = scope_id.split("_", 1)[1]
+        try:
+            target_m = pd.Period(m_str, freq="M")
+            mask = valid_dates.dt.to_period("M") == target_m
+            return df_copy[mask].copy(), target_m.strftime("%B %Y")
+        except Exception:
+            return df_copy, "Full Period"
+
+    return df_copy, "Full Period"
 
 
 def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict = None, target_year=None,

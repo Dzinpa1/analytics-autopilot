@@ -292,6 +292,35 @@ class TestDrilldownAndScopes(unittest.TestCase):
         self.assertTrue(series["Month_Label"].iloc[0].startswith("W"))
         self.assertEqual(insights["granularity"], "weekly")
 
+    def test_global_scope_options_generation(self):
+        from analysis_engine import get_time_scope_options
+        dates = pd.date_range("2026-01-01", "2026-12-31", freq="MS")
+        df = pd.DataFrame({"Date": dates, "Revenue": [100.0] * 12})
+        options = get_time_scope_options(df)
+        labels = [o["label"] for o in options]
+        self.assertTrue(any("Full Year (2026)" in l for l in labels))
+        self.assertTrue(any("Q4 2026" in l for l in labels))
+        self.assertTrue(any("November 2026" in l for l in labels))
+
+    def test_filter_df_by_time_scope(self):
+        from analysis_engine import filter_df_by_time_scope, compute_kpis
+        dates = pd.date_range("2026-01-01", "2026-12-31", freq="D")
+        df = pd.DataFrame({"Date": dates, "Revenue": [100.0] * len(dates), "Profit": [30.0] * len(dates)})
+        
+        # Quarter filter
+        q4_df, q4_name = filter_df_by_time_scope(df, "q_2026Q4")
+        self.assertEqual(len(q4_df), 92)  # Oct (31) + Nov (30) + Dec (31) = 92 days
+        self.assertEqual(q4_name, "Q4 2026")
+        q4_kpis = compute_kpis(q4_df)
+        self.assertEqual(q4_kpis["total_revenue"], 9200.0)
+
+        # Month filter
+        nov_df, nov_name = filter_df_by_time_scope(df, "m_2026-11")
+        self.assertEqual(len(nov_df), 30)  # November has 30 days
+        self.assertEqual(nov_name, "November 2026")
+        nov_kpis = compute_kpis(nov_df)
+        self.assertEqual(nov_kpis["total_revenue"], 3000.0)
+
 
 if __name__ == "__main__":
     unittest.main()
