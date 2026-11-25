@@ -892,15 +892,20 @@ with st.sidebar:
         )
 
 clean_df = report_data.get("df", df)
+from analysis_engine import filter_df_by_time_scope, compute_kpis, category_breakdown, region_breakdown, get_time_scope_options
+
 time_scopes = report_data.get("time_scopes", {})
-scope_options = time_scopes.get("scope_options", [{"id": "all", "label": "Full Dataset"}])
+# Resolve scope options dynamically from clean_df if not yet in cached report_data
+scope_options = time_scopes.get("scope_options") or get_time_scope_options(clean_df)
+time_scopes["scope_options"] = scope_options
 scope_labels = [s["label"] for s in scope_options]
 scope_id_map = {s["label"]: s["id"] for s in scope_options}
 
 active_scope_label = st.session_state.get("global_time_scope", scope_labels[0] if scope_labels else "Full Dataset")
+if active_scope_label not in scope_id_map:
+    active_scope_label = scope_labels[0] if scope_labels else "Full Dataset"
 active_scope_id = scope_id_map.get(active_scope_label, "all")
 
-from analysis_engine import filter_df_by_time_scope, compute_kpis, category_breakdown, region_breakdown
 scoped_df, active_scope_name = filter_df_by_time_scope(clean_df, active_scope_id)
 if scoped_df is None or scoped_df.empty:
     scoped_df = clean_df
@@ -1021,12 +1026,11 @@ with tab_dash:
     status_suffix = "Certified" if hygiene.get("health_score", 100) == 100 else "Sanitized"
     hygiene_pill = f'<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);color:#34D399;margin-left:8px;">✔ {hygiene.get("clean_row_count", len(df)):,} Records {status_suffix}</span>'
 
-    time_scopes = report_data.get("time_scopes", {})
-    scope_options = time_scopes.get("scope_options", [{"id": "all", "label": "Full Dataset"}])
+    scope_options = time_scopes.get("scope_options") or get_time_scope_options(clean_df)
     scope_labels = [s["label"] for s in scope_options]
     sel_idx = scope_labels.index(active_scope_label) if active_scope_label in scope_labels else 0
 
-    col_kpi_head, col_scope, col_kpi_dl = st.columns([1.6, 1.4, 1.0])
+    col_kpi_head, col_scope, col_kpi_dl = st.columns([2.6, 1.1, 0.9])
     with col_kpi_head:
         st.markdown(f'<div class="section-title" style="margin-bottom:0;padding-top:6px;">Core Performance Indicators <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;margin-left:8px;">{h(report_mode)}</span>{hygiene_pill}</div>', unsafe_allow_html=True)
     with col_scope:
