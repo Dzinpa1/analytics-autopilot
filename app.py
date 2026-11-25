@@ -623,86 +623,18 @@ with st.spinner("Processing data engine..."):
 
 cols = df.columns.tolist()
 
-def fcol(candidates, exclude=None):
-    ex = [e.lower() for e in (exclude or [])]
-    # Pass 1: exact match
-    for c in candidates:
-        for col in cols:
-            col_l = col.lower()
-            if any(e in col_l for e in ex):
-                continue
-            if c.lower() == col_l:
-                return col
-    # Pass 2: tokenized word match (avoids 'unit' matching 'unit_price')
-    for c in candidates:
-        for col in cols:
-            col_l = col.lower()
-            if any(e in col_l for e in ex):
-                continue
-            tokens = re.split(r'[\s_\-]+', col_l)
-            if c.lower() in tokens:
-                return col
-    # Pass 3: substring match
-    for c in candidates:
-        for col in cols:
-            col_l = col.lower()
-            if any(e in col_l for e in ex):
-                continue
-            if c.lower() in col_l:
-                return col
-    return cols[0]
+import importlib
+import analysis_engine
+importlib.reload(analysis_engine)
+from analysis_engine import infer_mapping
 
-def fcol_opt(candidates, exclude=None):
-    ex = [e.lower() for e in (exclude or [])]
-    # Pass 1: exact match
-    for c in candidates:
-        for col in cols:
-            col_l = col.lower()
-            if any(e in col_l for e in ex):
-                continue
-            if c.lower() == col_l:
-                return col
-    # Pass 2: tokenized word match
-    for c in candidates:
-        for col in cols:
-            col_l = col.lower()
-            if any(e in col_l for e in ex):
-                continue
-            tokens = re.split(r'[\s_\-]+', col_l)
-            if c.lower() in tokens:
-                return col
-    # Pass 3: substring match
-    for c in candidates:
-        for col in cols:
-            col_l = col.lower()
-            if any(e in col_l for e in ex):
-                continue
-            if c.lower() in col_l:
-                return col
-    return "None / Not Available"
-
-# Mode-specific column candidate prioritization
-if "Marketing" in report_mode:
-    date_col    = fcol(["date","time","day","month","period"])
-    revenue_col = fcol(["spend","ad_spend","budget","investment","revenue","sales","cost","amount","total"], exclude=["price","unit_price"])
-    profit_col  = fcol_opt(["conversions","leads","acquisitions","return","profit","margin","net"], exclude=["unit_cost"])
-    cost_col    = fcol_opt(["cpc","cpa","cost","expense"])
-    cat_col     = fcol_opt(["channel","campaign","network","source","medium","category","type"], exclude=["price","unit_price","cost"])
-    region_col  = fcol_opt(["region","country","market","geo","location","city","audience"])
-elif "Operations" in report_mode:
-    date_col    = fcol(["date","time","day","month","period"])
-    revenue_col = fcol(["budget","allocated","target","total_budget","revenue","amount","total"], exclude=["price","unit_price","rate"])
-    profit_col  = fcol_opt(["expense","actual","spend","cost","variance","profit"], exclude=["unit_cost","price"])
-    cost_col    = fcol_opt(["cogs","fixed_cost","variable_cost","overhead","cost"], exclude=["unit_cost","price"])
-    cat_col     = fcol_opt(["category","department","dept","cost_center","function","type","unit"], exclude=["price","cost","unit_price","rate"])
-    region_col  = fcol_opt(["facility","branch","site","warehouse","region","location","plant"])
-else:  # Sales & Retail Performance
-    date_col    = fcol(["date","time","day","month"])
-    revenue_col = fcol(["revenue","sales","amount","income","total"], exclude=["price","unit_price"])
-    profit_col  = fcol_opt(["profit","margin","net"], exclude=["unit_cost"])
-    cost_col    = fcol_opt(["cost","expense","cogs"], exclude=["unit_cost"])
-    cat_col     = fcol_opt(["category","type","segment"], exclude=["price","unit_price","cost"])
-    region_col  = fcol_opt(["region","area","zone","location"])
+inferred_cols = infer_mapping(df, report_mode=report_mode)
+date_col    = inferred_cols.get("date") or cols[0]
+revenue_col = inferred_cols.get("revenue") or cols[0]
+profit_col  = inferred_cols.get("profit") or "None / Not Available"
+cost_col    = inferred_cols.get("cost") or "None / Not Available"
+cat_col     = inferred_cols.get("category") or "None / Not Available"
+region_col  = inferred_cols.get("region") or "None / Not Available"
 
 opt_cols = ["None / Not Available"] + cols
 
@@ -753,9 +685,6 @@ with st.sidebar:
 # COMPUTE METRICS VIA ANALYSIS ENGINE (Single Source of Truth, Cached)
 # ─────────────────────────────────────────────────────────────────────────────
 import hashlib
-import importlib
-import analysis_engine
-importlib.reload(analysis_engine)
 from analysis_engine import build_report_from_df
 
 col_mapping = {

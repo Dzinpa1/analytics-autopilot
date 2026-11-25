@@ -795,6 +795,117 @@ def get_mode_kpi_labels(report_mode: str = "Sales & Retail Performance") -> dict
         }
 
 
+def infer_mapping(data, report_mode: str = "Sales & Retail Performance") -> dict:
+    """
+    Intelligently auto-detects semantic column roles (date, revenue, profit, cost, category, region, product, channel)
+    from any DataFrame or list of column names using a resilient 3-pass strategy:
+    1. Exact case-insensitive match
+    2. Tokenized word boundary match (prevents 'unit' matching 'unit_price')
+    3. Negative exclusion substring match
+    """
+    if isinstance(data, pd.DataFrame):
+        cols = data.columns.tolist()
+    elif isinstance(data, (list, tuple, pd.Index)):
+        cols = list(data)
+    else:
+        cols = []
+
+    if not cols:
+        return {}
+
+    def fcol(candidates, exclude=None):
+        ex = [e.lower() for e in (exclude or [])]
+        for c in candidates:
+            for col in cols:
+                col_l = str(col).lower()
+                if any(e in col_l for e in ex):
+                    continue
+                if c.lower() == col_l:
+                    return col
+        for c in candidates:
+            for col in cols:
+                col_l = str(col).lower()
+                if any(e in col_l for e in ex):
+                    continue
+                tokens = re.split(r'[\s_\-]+', col_l)
+                if c.lower() in tokens:
+                    return col
+        for c in candidates:
+            for col in cols:
+                col_l = str(col).lower()
+                if any(e in col_l for e in ex):
+                    continue
+                if c.lower() in col_l:
+                    return col
+        return cols[0]
+
+    def fcol_opt(candidates, exclude=None):
+        ex = [e.lower() for e in (exclude or [])]
+        for c in candidates:
+            for col in cols:
+                col_l = str(col).lower()
+                if any(e in col_l for e in ex):
+                    continue
+                if c.lower() == col_l:
+                    return col
+        for c in candidates:
+            for col in cols:
+                col_l = str(col).lower()
+                if any(e in col_l for e in ex):
+                    continue
+                tokens = re.split(r'[\s_\-]+', col_l)
+                if c.lower() in tokens:
+                    return col
+        for c in candidates:
+            for col in cols:
+                col_l = str(col).lower()
+                if any(e in col_l for e in ex):
+                    continue
+                if c.lower() in col_l:
+                    return col
+        return None
+
+    mode = report_mode or "Sales & Retail Performance"
+    if "Marketing" in mode:
+        date_col    = fcol(["date", "time", "day", "month", "period"])
+        revenue_col = fcol(["spend", "ad_spend", "budget", "investment", "revenue", "sales", "cost", "amount", "total"], exclude=["price", "unit_price"])
+        profit_col  = fcol_opt(["conversions", "leads", "acquisitions", "return", "profit", "margin", "net"], exclude=["unit_cost"])
+        cost_col    = fcol_opt(["cpc", "cpa", "cost", "expense"])
+        cat_col     = fcol_opt(["channel", "campaign", "network", "source", "medium", "category", "type"], exclude=["price", "unit_price", "cost"])
+        region_col  = fcol_opt(["region", "country", "market", "geo", "location", "city", "audience"])
+        prod_col    = fcol_opt(["campaign", "ad", "creative", "product", "item"])
+        chan_col    = fcol_opt(["channel", "platform", "network", "source", "medium"])
+    elif "Operations" in mode:
+        date_col    = fcol(["date", "time", "day", "month", "period"])
+        revenue_col = fcol(["budget", "allocated", "target", "total_budget", "revenue", "amount", "total"], exclude=["price", "unit_price", "rate"])
+        profit_col  = fcol_opt(["expense", "actual", "spend", "cost", "variance", "profit"], exclude=["unit_cost", "price"])
+        cost_col    = fcol_opt(["cogs", "fixed_cost", "variable_cost", "overhead", "cost"], exclude=["unit_cost", "price"])
+        cat_col     = fcol_opt(["category", "department", "dept", "cost_center", "function", "type", "unit"], exclude=["price", "cost", "unit_price", "rate"])
+        region_col  = fcol_opt(["facility", "branch", "site", "warehouse", "region", "location", "plant"])
+        prod_col    = fcol_opt(["item", "task", "work_order", "expense_item", "product"])
+        chan_col    = fcol_opt(["channel", "vendor", "supplier", "team"])
+    else:  # Sales & Retail Performance
+        date_col    = fcol(["date", "time", "day", "month"])
+        revenue_col = fcol(["revenue", "sales", "gross_sales", "amount", "income", "total"], exclude=["price", "unit_price", "quantity", "units"])
+        profit_col  = fcol_opt(["profit", "margin", "net", "net_profit"], exclude=["unit_cost", "margin_%"])
+        cost_col    = fcol_opt(["cost", "expense", "cogs"], exclude=["unit_cost"])
+        cat_col     = fcol_opt(["category", "type", "segment", "department"], exclude=["price", "unit_price", "cost"])
+        region_col  = fcol_opt(["region", "country", "area", "zone", "location", "territory", "city", "state"])
+        prod_col    = fcol_opt(["product", "sku", "item", "description"])
+        chan_col    = fcol_opt(["channel", "store", "platform", "source", "outlet"])
+
+    return {
+        "date": date_col,
+        "revenue": revenue_col,
+        "profit": profit_col,
+        "cost": cost_col,
+        "category": cat_col,
+        "region": region_col,
+        "product": prod_col or cat_col,
+        "channel": chan_col,
+    }
+
+
 def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: str = "Sales & Retail Performance", currency_symbol: str = "$", **kwargs) -> dict:
     """
     Core deterministic data engine. Takes any raw or mapped DataFrame,
@@ -856,10 +967,11 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     else:
         dup_count = 0
 
-    has_mapped_profit = ("Profit" in df.columns) if not mapping else False
-    has_mapped_cost   = ("Cost" in df.columns) if not mapping else False
+    active_mapping = mapping if mapping is not None else infer_mapping(clean_df, report_mode=report_mode)
+    has_mapped_profit = False
+    has_mapped_cost   = False
 
-    if mapping:
+    if active_mapping:
         target_name_map = {
             "date": "Date",
             "revenue": "Revenue",
@@ -868,20 +980,21 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
             "category": "Category",
             "region": "Region",
             "product": "Product",
+            "channel": "Channel",
             "quantity": "Quantity",
         }
-        for target, src in mapping.items():
+        for target, src in active_mapping.items():
             target_col = target_name_map.get(target.lower(), target.capitalize())
             if not src or src == "None / Not Available":
                 if target_col in clean_df.columns:
                     clean_df = clean_df.drop(columns=[target_col])
-            elif src in df.columns:
+            elif src in clean_df.columns or src in df.columns:
+                source_series = clean_df[src].copy() if src in clean_df.columns else df[src].copy()
                 if target.lower() == "profit":
                     has_mapped_profit = True
                 elif target.lower() == "cost":
                     has_mapped_cost = True
-                # Direct assignment allows multiple targets to share the same source column without dropping one
-                clean_df[target_col] = df[src].copy()
+                clean_df[target_col] = source_series
 
     # Bulletproof guard against duplicate column names from any source
     clean_df = clean_df.loc[:, ~clean_df.columns.duplicated()]

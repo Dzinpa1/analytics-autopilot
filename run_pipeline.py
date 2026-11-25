@@ -7,7 +7,7 @@ Master runner — executes the full end-to-end pipeline:
   4. Build PowerPoint deck
 """
 
-import os, time
+import os, time, sys
 
 BASE_DIR   = os.path.dirname(__file__)
 CSV_PATH   = os.path.join(BASE_DIR, "sales_data.csv")
@@ -22,14 +22,18 @@ def banner(msg):
 if __name__ == "__main__":
     start = time.time()
 
-    # ── Step 1: Generate data ──────────────────────────────────
-    banner("STEP 1 of 4 — Generating dataset")
-    from generate_data import generate_sales_data
-    df = generate_sales_data()
-    df.to_csv(CSV_PATH, index=False)
-    print(f"  Dataset: {df.shape[0]} rows × {df.shape[1]} columns → {CSV_PATH}")
+    # ── Step 1: Ingest or generate data ─────────────────────────
+    if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
+        CSV_PATH = sys.argv[1]
+        banner(f"STEP 1 of 4 — Using provided dataset: {CSV_PATH}")
+    else:
+        banner("STEP 1 of 4 — Generating demo dataset")
+        from generate_data import generate_sales_data
+        df = generate_sales_data()
+        df.to_csv(CSV_PATH, index=False)
+        print(f"  Dataset: {df.shape[0]} rows × {df.shape[1]} columns → {CSV_PATH}")
 
-    # ── Step 2: Analyse ────────────────────────────────────────
+    # ── Step 2: Auto-detect columns & compute KPIs ──────────────
     banner("STEP 2 of 4 — Analysing data & computing KPIs")
     from analysis_engine import build_report
     report = build_report(CSV_PATH)
