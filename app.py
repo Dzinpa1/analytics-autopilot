@@ -1110,17 +1110,20 @@ with tab_dash:
     TEXT_COLOR = "#94A3B8"
     PALETTE    = ["#6366F1", "#38BDF8", "#818CF8", "#0EA5E9", "#A5B4FC", "#64748B"]
 
-    def style_chart(fig, title=None, n_bars=None):
+    def style_chart(fig, title=None, n_bars=None, tickangle=None):
+        bot_margin = 55 if (tickangle is not None and tickangle != 0) else 36
         fig.update_layout(
             paper_bgcolor=DARK_BG,
             plot_bgcolor=DARK_BG,
             font=dict(family="Plus Jakarta Sans", color=TEXT_COLOR),
             title=None,
-            margin=dict(l=40, r=20, t=16, b=36),
+            margin=dict(l=40, r=20, t=16, b=bot_margin),
             legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT_COLOR)),
         )
         x_kwargs = dict(showgrid=False, linecolor=GRID_COLOR, tickcolor=GRID_COLOR)
-        if n_bars is None or n_bars <= 14:
+        if tickangle is not None:
+            x_kwargs["tickangle"] = tickangle
+        elif n_bars is None or n_bars <= 14:
             x_kwargs["tickangle"] = 0
         fig.update_xaxes(**x_kwargs)
         fig.update_yaxes(showgrid=True, gridcolor=GRID_COLOR, linecolor=GRID_COLOR)
@@ -1360,8 +1363,7 @@ with tab_dash:
             fig4.update_yaxes(tickprefix=curr_sym, tickformat=",.0f")
         else:
             fig4.update_yaxes(tickformat=",.0f")
-        fig4.update_xaxes(tickangle=-25)
-        st.plotly_chart(style_chart(fig4, n_bars=len(prod_rank)), use_container_width=True)
+        st.plotly_chart(style_chart(fig4, n_bars=len(prod_rank), tickangle=-25), use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 
