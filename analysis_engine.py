@@ -393,11 +393,11 @@ def get_available_time_scopes(df: pd.DataFrame) -> dict:
     unique_months = valid_dates.dt.to_period("M").nunique()
 
     if is_multi_year:
-        granularities = ["Yearly", "Quarterly", "Monthly"]
+        granularities = ["Yearly", "Quarterly", "Monthly", "Weekly", "Daily"]
     elif span_days <= 45 or unique_months <= 1:
-        granularities = ["Daily", "Monthly"]
+        granularities = ["Weekly", "Daily"]
     else:
-        granularities = ["Monthly", "Quarterly", "Daily"]
+        granularities = ["Quarterly", "Monthly", "Weekly", "Daily"]
 
     return {
         "years": years,
@@ -450,7 +450,7 @@ def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict = None, ta
     if granularity == "auto":
         active_granularity = horizon_info["horizon"]
     else:
-        g_map = {"yearly": "annual", "annual": "annual", "quarterly": "quarterly", "monthly": "monthly", "daily": "daily"}
+        g_map = {"yearly": "annual", "annual": "annual", "quarterly": "quarterly", "monthly": "monthly", "weekly": "weekly", "daily": "daily"}
         active_granularity = g_map.get(str(granularity).lower(), "monthly")
 
     # Check if this active slice represents a single calendar year
@@ -598,6 +598,60 @@ def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict = None, ta
             "x_tick_angle": 0,
         }
         return quarterly, insights_out
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # CASE C: WEEKLY DRILLDOWN
+    # ─────────────────────────────────────────────────────────────────────────────
+    elif active_granularity == "weekly":
+        df_copy = df_active.copy()
+        df_copy["Week"] = df_copy["Date"].dt.to_period("W")
+        weekly = df_copy.groupby("Week").agg(**agg_dict).reset_index()
+        if not has_profit or "Profit" not in weekly.columns:
+            weekly["Profit"] = 0.0
+
+        if is_single_year_slice:
+            weekly["Month_Label"] = weekly["Week"].apply(lambda w: f"W{w.week:02d}")
+            trend_title = f"Weekly Performance Trajectory ({slice_year})"
+        else:
+            weekly["Month_Label"] = weekly["Week"].apply(lambda w: f"W{w.week:02d} '{str(w.year)[-2:]}")
+            min_y = df_active["Date"].dt.year.min()
+            max_y = df_active["Date"].dt.year.max()
+            trend_title = f"Weekly Trajectory ({min_y} - {max_y})"
+
+        weekly["Period_Label"] = weekly["Month_Label"]
+        weekly["MoM_Growth"] = weekly["Revenue"].pct_change() * 100
+        weekly["Is_Partial"] = False
+
+        best_w_idx = weekly["Revenue"].idxmax() if not weekly.empty else None
+        worst_w_idx = weekly["Revenue"].idxmin() if not weekly.empty else None
+
+        if best_w_idx is not None and worst_w_idx is not None:
+            best_w = weekly.loc[best_w_idx, "Month_Label"]
+            worst_w = weekly.loc[worst_w_idx, "Month_Label"]
+            best_w_rev = float(weekly.loc[best_w_idx, "Revenue"])
+            worst_w_rev = float(weekly.loc[worst_w_idx, "Revenue"])
+        else:
+            best_w, worst_w = "N/A", "N/A"
+            best_w_rev, worst_w_rev = 0.0, 0.0
+
+        insights_out = {
+            "time_horizon": "weekly",
+            "granularity": "weekly",
+            "target_year": target_year,
+            "horizon_desc": f"Weekly velocity ({len(weekly)} weeks)",
+            "trend_title": trend_title,
+            "best_period": f"{best_w} {slice_year}" if is_single_year_slice and not best_w.endswith(str(slice_year)) else best_w,
+            "worst_period": f"{worst_w} {slice_year}" if is_single_year_slice and not worst_w.endswith(str(slice_year)) else worst_w,
+            "best_period_tag": "🏆 Peak Week Velocity",
+            "worst_period_tag": "⚠️ Softest Week Velocity",
+            "best_period_desc": f"Highest weekly velocity recorded ({sym}{best_w_rev:,.0f}).",
+            "worst_period_desc": f"Softest weekly velocity recorded ({sym}{worst_w_rev:,.0f}).",
+            "period_guidance": f"Review inventory buffer and delivery schedule ahead of {best_w}.",
+            "growth_rate_metric": "WoW",
+            "avg_growth_rate": round(weekly["MoM_Growth"].dropna().mean(), 2) if not weekly.empty else 0.0,
+            "x_tick_angle": 0,
+        }
+        return weekly, insights_out
 
     # ─────────────────────────────────────────────────────────────────────────────
     # CASE C: ANNUAL MACRO DRILLDOWN

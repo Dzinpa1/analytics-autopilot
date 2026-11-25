@@ -1095,31 +1095,32 @@ with tab_dash:
         detected_years = time_scopes.get("years", [])
         is_multi_year = time_scopes.get("is_multi_year", False)
 
-        c1_head, c1_drill, c1_ctrl = st.columns([1.6, 1.4, 1.0])
-        trend_box_title = insights.get("trend_title") or meta.get("trend_title", "Performance Trajectory")
-        with c1_head:
-            anom_pill = f'<span style="font-size:10px;font-weight:700;color:#FBBF24;background:rgba(245,158,11,0.15);padding:2px 7px;border-radius:10px;border:1px solid rgba(245,158,11,0.3);margin-left:6px;">⚡ {len(anomalies)} Outlier{"s" if len(anomalies) > 1 else ""}</span>' if anomalies else ""
-            st.markdown(f'<div style="font-size:13px;font-weight:700;color:#F8FAFC;padding:6px 0;">{h(trend_box_title)}{anom_pill}</div>', unsafe_allow_html=True)
-
-        with c1_drill:
-            d_col1, d_col2 = st.columns(2)
-            with d_col1:
-                if is_multi_year:
-                    year_opts = ["All Years"] + [str(y) for y in detected_years]
-                    sel_year_str = st.selectbox("Year", year_opts, key="drill_year", label_visibility="collapsed")
-                    target_yr = None if sel_year_str == "All Years" else int(sel_year_str)
+        if is_multi_year:
+            c1_head, c1_yr, c1_gran, c1_ctrl = st.columns([1.5, 1.0, 1.25, 1.25])
+            with c1_head:
+                st.markdown('<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Performance Trajectory</div>', unsafe_allow_html=True)
+            with c1_yr:
+                year_opts = ["All Years"] + [str(y) for y in detected_years]
+                sel_year_str = st.selectbox("Year", year_opts, key="drill_year", label_visibility="collapsed")
+                target_yr = None if sel_year_str == "All Years" else int(sel_year_str)
+            with c1_gran:
+                if target_yr is not None:
+                    gran_opts = ["Quarterly", "Monthly", "Weekly", "Daily"]
                 else:
-                    target_yr = detected_years[0] if detected_years else datetime.date.today().year
-                    st.markdown(f'<div style="font-size:11px;font-weight:700;color:#818CF8;background:rgba(99,102,241,0.12);padding:6px 8px;border-radius:6px;border:1px solid rgba(99,102,241,0.25);text-align:center;">{target_yr}</div>', unsafe_allow_html=True)
-            with d_col2:
-                if target_yr is not None or not is_multi_year:
-                    gran_opts = ["Monthly", "Quarterly", "Daily"]
-                else:
-                    gran_opts = ["Yearly", "Quarterly", "Monthly"]
-                sel_gran = st.selectbox("Granularity", gran_opts, key="drill_gran", label_visibility="collapsed")
-
-        with c1_ctrl:
-            trend_style = st.selectbox("Style", ["Grouped Bars", "Line & Area", "Growth %"], key="ctrl_trend", label_visibility="collapsed")
+                    gran_opts = ["Yearly", "Quarterly", "Monthly", "Weekly", "Daily"]
+                sel_gran = st.selectbox("Granularity", gran_opts, index=1 if "Monthly" in gran_opts else 0, key="drill_gran", label_visibility="collapsed")
+            with c1_ctrl:
+                trend_style = st.selectbox("Style", ["Grouped Bars", "Line & Area", "Growth %"], key="ctrl_trend", label_visibility="collapsed")
+        else:
+            target_yr = detected_years[0] if detected_years else datetime.date.today().year
+            c1_head, c1_gran, c1_ctrl = st.columns([1.8, 1.3, 1.3])
+            with c1_head:
+                st.markdown('<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Performance Trajectory</div>', unsafe_allow_html=True)
+            with c1_gran:
+                gran_opts = ["Quarterly", "Monthly", "Weekly", "Daily"]
+                sel_gran = st.selectbox("Granularity", gran_opts, index=1, key="drill_gran", label_visibility="collapsed")
+            with c1_ctrl:
+                trend_style = st.selectbox("Style", ["Grouped Bars", "Line & Area", "Growth %"], key="ctrl_trend", label_visibility="collapsed")
 
         from analysis_engine import compute_adaptive_time_series
         active_series, active_insights = compute_adaptive_time_series(
@@ -1133,7 +1134,7 @@ with tab_dash:
         report_data["insights"].update(active_insights)
         monthly = active_series
 
-        chart1_display_title = active_insights.get("trend_title", trend_box_title)
+        chart1_display_title = active_insights.get("trend_title", "Performance Trajectory")
 
         fig1 = go.Figure()
         if trend_style == "Line & Area":
@@ -1181,7 +1182,7 @@ with tab_dash:
 
     with ch2:
         st.markdown('<div class="chart-box">', unsafe_allow_html=True)
-        c2_head, c2_ctrl = st.columns([2, 1])
+        c2_head, c2_ctrl = st.columns([1.8, 1.3])
         with c2_head:
             st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Category Portfolio</div>', unsafe_allow_html=True)
         with c2_ctrl:

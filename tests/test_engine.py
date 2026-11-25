@@ -284,6 +284,14 @@ class TestDrilldownAndScopes(unittest.TestCase):
         self.assertEqual(list(series["Month_Label"]), ["Q1", "Q2", "Q3", "Q4"])
         self.assertIn("2026", insights["trend_title"])
 
+    def test_single_year_weekly_labels(self):
+        # Single-year weekly view should produce clean W01, W02... labels
+        dates = pd.date_range("2026-01-01", "2026-03-31", freq="D")
+        df = pd.DataFrame({"Date": dates, "Revenue": [10.0] * len(dates)})
+        series, insights = compute_adaptive_time_series(df, target_year=2026, granularity="weekly")
+        self.assertTrue(series["Month_Label"].iloc[0].startswith("W"))
+        self.assertEqual(insights["granularity"], "weekly")
+
 
 if __name__ == "__main__":
     unittest.main()
