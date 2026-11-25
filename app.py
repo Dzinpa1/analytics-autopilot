@@ -5,6 +5,7 @@ Run with:  python -m streamlit run app.py
 """
 
 import html
+import re
 import streamlit as st
 import pandas as pd
 import os, io
