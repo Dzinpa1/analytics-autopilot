@@ -644,6 +644,7 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────────────────────
 # COMPUTE METRICS VIA ANALYSIS ENGINE (Single Source of Truth, Cached)
 # ─────────────────────────────────────────────────────────────────────────────
+import hashlib
 from analysis_engine import build_report_from_df
 
 col_mapping = {
@@ -656,12 +657,16 @@ col_mapping = {
     "product": "Product" if "Product" in df.columns else (cat_col if cat_col != "None / Not Available" else None),
 }
 
+# Deterministic content hash ensures uploading a new dataset with identical column names
+# recomputes fresh metrics while keeping slide carousel navigation instant.
+data_hash = hashlib.md5(pd.util.hash_pandas_object(df, index=True).values).hexdigest()
+
 @st.cache_data(show_spinner=False)
-def get_cached_report(_df, mapping, mode, curr):
+def get_cached_report(_df, mapping, mode, curr, data_signature):
     return build_report_from_df(_df, mapping=mapping, report_mode=mode, currency_symbol=curr)
 
 try:
-    report_data = get_cached_report(df, col_mapping, report_mode, curr_sym)
+    report_data = get_cached_report(df, col_mapping, report_mode, curr_sym, data_hash)
 except Exception as e:
     st.error(f"⚠️ **Could not process this spreadsheet:** {str(e)}\n\nPlease ensure your Date and Revenue columns contain valid values.")
     st.stop()
@@ -672,6 +677,7 @@ category  = report_data["category"]
 region_df = report_data["region"]
 insights  = report_data["insights"]
 hygiene   = report_data.get("hygiene", {})
+anomalies = insights.get("anomalies", [])
 
 # Render Data Hygiene Audit Log in Sidebar
 with st.sidebar:
@@ -774,7 +780,6 @@ with tab_dash:
     st.markdown(f'<div class="section-title">Core Performance Indicators <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;margin-left:8px;">{report_mode}</span>{hygiene_pill}</div>', unsafe_allow_html=True)
 
     if narrative.get("executive_summary"):
-        anomalies = insights.get("anomalies", [])
         anom_badge = ""
         if anomalies:
             top_a = anomalies[0]

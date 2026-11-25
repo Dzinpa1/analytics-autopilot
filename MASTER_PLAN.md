@@ -46,6 +46,33 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
 - [x] Pre-deployment edge-case hardening (sync chart dropdown state to PPTX, dynamic currency symbols `₵`/`₦`/`£`/`€`/`$`, horizontal bar for >5 products, multi-sheet Excel support, pinned `kaleido==0.2.1`, production reload cleanup).
 - [ ] Deploy live to **Streamlit Community Cloud** and share with 10–15 beta testers for real-world feedback.
 
+### E. Pre-Launch Quality & Trust Hardening
+
+#### Milestone 1: Critical Bugs & File Handling (Data Integrity)
+- [x] **Fix Stale Data Cache (`app.py`):** Pass a hash of the DataFrame/file bytes as a normal argument to `get_cached_report()` (since `_df` with a leading underscore is ignored by Streamlit's cache), so uploading a second file with identical column names always recomputes fresh metrics.
+- [x] **Fix `NameError` Guard (`app.py`):** Define `anomalies = insights.get("anomalies", [])` above `if narrative.get("executive_summary"):` so missing JSON keys never crash the chart header.
+- [ ] **Harden File Ingestion (`app.py` & `requirements.txt`):** Add `xlrd>=2.0.1` to `requirements.txt` for `.xls` files, and add UTF-8 -> `cp1252`/`latin1` encoding fallback + delimiter sniffing (`sep=None, engine="python"`) for CSVs containing `₵` or `£`.
+- [ ] **Harden Number & Date Sanitization (`analysis_engine.py`):** Handle accounting negatives like `(500)` -> `-500`, European decimals (`1.234,56`), and `K`/`M` suffixes safely; flag/report actual imputed/dropped rows honestly in `hygiene` instead of hardcoding `"100% retention"` and `"Certified Clean"` when rows were altered.
+
+#### Milestone 2: True Per-Mode Math & Honest Narratives
+- [ ] **True Mode-Specific Metrics (`analysis_engine.py`):** Stop simply relabeling Sales math:
+  - *Sales:* Margin % = `Profit / Revenue * 100`, AOV = `Revenue / Orders`
+  - *Marketing:* ROAS = `Return / Spend` (or `Conversions / Spend * 100` if return is unmapped), CPA = `Spend / Conversions`
+  - *Operations:* Variance = `Actual - Budget`, Budget Utilization % = `Actual / Budget * 100` (with green/amber/red status pills where `<= 100%` is on-budget and `> 100%` is over-budget).
+- [ ] **Honest Time-Series & Anomalies (`analysis_engine.py`):** Fix the hardcoded upward arrow (`↑`) when `avg_mom_growth` is negative; ensure "Dominant channel" only shows when a Channel column actually exists; soften anomaly wording so normal 1.5σ fluctuations aren't overclaimed.
+- [ ] **Dynamic Currency & Grounded Claims in AI (`ai_narrator.py`):** Pass `currency_symbol` into `generate_narrative()` and `get_deterministic_fallback()` instead of hardcoding `$`, and remove unsupported claims (like "high organic repeat rates" or "ramp up 45 days prior") unless backed by actual data.
+
+#### Milestone 3: PowerPoint Deck & UI Polish
+- [ ] **Fix Stretched Charts in `.pptx` (`slide_builder.py`):** Pass ONLY `width` (or ONLY `height`) to `slide.shapes.add_picture()`—or render charts at matching slot aspect ratios—so donuts stay round circles instead of stretched ovals.
+- [ ] **Clean Up Slide Layouts (`slide_builder.py`):** Remove the printed "Speaker Notes:" box from the visible face of Slides 3 & 4 (keep speaker scripts strictly in PowerPoint's native Presenter Notes pane across all 5 slides); hide Return Rate / Total Units cards on Slide 2 when those columns aren't mapped; only show the white-label brand header on Slide 1 instead of hardcoding "Analytics AutoPilot" when custom branding is active.
+- [ ] **Brand Contrast & Security (`app.py` & `slide_builder.py`):** Add a luminance contrast check so white text on light custom brand colors automatically switches to dark text (`#0F172A`), and wrap user-supplied strings (`report_title`, CSV values, LLM outputs) in `html.escape()` before rendering inside `unsafe_allow_html` blocks.
+- [ ] **Protect Server Gemini Key & Add Explicit Trigger (`app.py`):** Add an explicit **"✨ Generate AI Commentary"** button (instead of auto-firing paid API calls on every title/currency tweak) and guard server-side API key usage if no user key is entered.
+
+#### Milestone 4: Shared Architecture & Automated Tests
+- [ ] **Centralize Column Inference (`analysis_engine.py`):** Move `infer_mapping()` into `analysis_engine.py` so both `app.py` and `run_pipeline.py` can auto-detect columns on any CSV.
+- [ ] **Seasonal Sample Data & Dynamic Year (`generate_data.py` & `app.py`):** Add realistic Q4/holiday seasonality to `generate_sales_data()` so demo insights look authentic, and replace hardcoded `"2024"` titles with the dataset's actual detected year.
+- [ ] **Automated Golden Tests (`tests/test_engine.py`):** Add a compact `pytest` suite verifying seeded KPI math, `sanitize_numeric_column` edge cases (`₵1,200.50`, `(500)`, `1.5K`), and Marketing/Operations formulas.
+
 ## 4. PHASE 2: Commercial SaaS Product (v1.0 Paid Full-Stack)
 *Goal: Monetize the validated Python engines into a secure multi-user SaaS.*
 
