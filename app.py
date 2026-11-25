@@ -4,10 +4,15 @@ Design System: Linear Obsidian (Dark Pro Studio)
 Run with:  python -m streamlit run app.py
 """
 
+import html
 import streamlit as st
 import pandas as pd
 import os, io
 import plotly.graph_objects as go
+
+def h(val):
+    """HTML-escape user and dynamic strings before rendering in unsafe_allow_html blocks."""
+    return html.escape(str(val)) if val is not None else ""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -701,13 +706,25 @@ with st.sidebar:
             placeholder="AIzaSy... (leave blank for template)",
             help="Paste your Gemini API key to generate live tailored executive narratives and speaker scripts. Key is stored only in session state."
         )
-        if not gemini_api_key_input:
+        if "ai_calls_count" not in st.session_state:
+            st.session_state.ai_calls_count = 0
+        MAX_AI_CALLS = 10
+
+        from ai_narrator import get_gemini_api_key
+        active_api_key = (gemini_api_key_input.strip() if 'gemini_api_key_input' in locals() and gemini_api_key_input else None) or get_gemini_api_key()
+
+        if active_api_key:
+            st.caption(f"✦ Session AI Calls: {st.session_state.ai_calls_count}/{MAX_AI_CALLS}")
+            gen_ai_clicked = st.button("✨ Generate AI Commentary", help="Generate customized LLM-powered narrative & speaker notes using your Gemini key.", use_container_width=True)
+        else:
+            gen_ai_clicked = False
             st.caption(f"✦ Using built-in deterministic {report_mode} executive commentary.")
 
     with st.expander("🎨 Brand Kit & White-Labeling", expanded=False):
         currency_options = ["$", "₵", "₦", "£", "€", "None"]
         currency_symbol = st.selectbox("Currency Symbol", currency_options, index=0, help="Currency symbol used across KPI cards, chart axes, and presentation slides.")
         curr_sym = "" if currency_symbol == "None" else currency_symbol
+        brand_name = st.text_input("Brand / Organization Name", value="", placeholder="e.g. Acme Corp (leave blank for AutoPilot)", help="Custom organization name displayed on Slide 1.")
         brand_color = st.color_picker("Brand Accent Color", value="#6366F1", help="Select corporate accent color to theme the PowerPoint presentation.")
         logo_file = st.file_uploader("Brand Logo (.png, .jpg)", type=["png", "jpg", "jpeg"], help="Optional: Upload company logo for slide headers and cover.")
 
@@ -816,26 +833,38 @@ growth_arrow = insights.get("growth_arrow", "↑" if mom_avg >= 0 else "↓")
 growth_pill_class = "pill-blue" if growth_arrow == "↑" else "pill-amber"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AI NARRATIVE GENERATION (Cached in st.session_state)
+# AI NARRATIVE GENERATION (On-Demand & Session Cached)
 # ─────────────────────────────────────────────────────────────────────────────
 import importlib
 import ai_narrator
 importlib.reload(ai_narrator)
-from ai_narrator import generate_narrative, get_gemini_api_key
+from ai_narrator import generate_narrative, get_deterministic_fallback
 
-active_api_key = (gemini_api_key_input.strip() if 'gemini_api_key_input' in locals() and gemini_api_key_input else None) or get_gemini_api_key()
+if "cached_ai_narratives" not in st.session_state:
+    st.session_state.cached_ai_narratives = {}
 
-cache_key = f"nar_{report_mode}_{report_title}_{total_revenue}_{total_orders}_{curr_sym}_{bool(active_api_key)}"
-if "narrative_cache" not in st.session_state:
-    st.session_state.narrative_cache = {}
+# Check if user explicitly triggered Gemini AI commentary
+if 'gen_ai_clicked' in locals() and gen_ai_clicked and active_api_key:
+    if st.session_state.ai_calls_count >= MAX_AI_CALLS:
+        st.warning(f"⚠️ Session AI call limit reached ({MAX_AI_CALLS} calls). Using existing commentary.")
+    else:
+        with st.spinner(f"🧠 Synthesizing executive narrative with Gemini ({report_mode})..."):
+            st.session_state.ai_calls_count += 1
+            ai_result = generate_narrative(
+                report_data, report_title=report_title, report_mode=report_mode,
+                api_key=active_api_key, currency_symbol=curr_sym
+            )
+            st.session_state.cached_ai_narratives[data_hash] = ai_result
+            st.toast("✨ Gemini executive narrative & speaker notes generated!", icon="🧠")
 
-if cache_key not in st.session_state.narrative_cache:
-    with st.spinner(f"🧠 Synthesizing executive narrative ({report_mode})..."):
-        st.session_state.narrative_cache[cache_key] = generate_narrative(
-            report_data, report_title=report_title, report_mode=report_mode, api_key=active_api_key, currency_symbol=curr_sym
-        )
+# Resolve active narrative: user-generated AI narrative for this data hash if available, else deterministic template
+if data_hash in st.session_state.cached_ai_narratives:
+    narrative = st.session_state.cached_ai_narratives[data_hash]
+else:
+    narrative = get_deterministic_fallback(
+        report_data, report_title=report_title, report_mode=report_mode, currency_symbol=curr_sym
+    )
 
-narrative     = st.session_state.narrative_cache[cache_key]
 speaker_notes = narrative.get("speaker_notes", {})
 recs          = narrative.get("recommendations", [])
 takeaways     = narrative.get("takeaways", [])
@@ -859,7 +888,7 @@ with tab_dash:
     # ─────────────────────────────────────────────────────────────────────────────
     status_suffix = "Certified" if hygiene.get("health_score", 100) == 100 else "Sanitized"
     hygiene_pill = f'<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);color:#34D399;margin-left:8px;">✔ {hygiene.get("clean_row_count", len(df)):,} Records {status_suffix}</span>'
-    st.markdown(f'<div class="section-title">Core Performance Indicators <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;margin-left:8px;">{report_mode}</span>{hygiene_pill}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">Core Performance Indicators <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;margin-left:8px;">{h(report_mode)}</span>{hygiene_pill}</div>', unsafe_allow_html=True)
 
     if narrative.get("executive_summary"):
         anom_badge = ""
@@ -870,14 +899,14 @@ with tab_dash:
             anom_border = "rgba(16, 185, 129, 0.3)" if top_a["type"] == "Surge" else "rgba(248, 113, 113, 0.3)"
             anom_badge = (
                 f'<div style="margin-top:12px;padding:8px 14px;border-radius:8px;background:{anom_bg};border:1px solid {anom_border};font-size:12px;color:#F8FAFC;display:inline-flex;align-items:center;gap:6px;">'
-                f'<span style="font-weight:700;color:{anom_color};">⚡ STATISTICAL {top_a["type"].upper()} DETECTED:</span>'
-                f'{top_a["period"]} recorded {top_a["pct_diff_mean"]:+.1f}% vs. baseline ({top_a["z_score"]:+.2f}σ deviation)'
+                f'<span style="font-weight:700;color:{anom_color};">⚡ STATISTICAL {h(top_a["type"].upper())} DETECTED:</span>'
+                f'{h(top_a["period"])} recorded {top_a["pct_diff_mean"]:+.1f}% vs. baseline ({top_a["z_score"]:+.2f}σ deviation)'
                 f'</div>'
             )
 
         briefing_html = (
             f'<div style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(56,189,248,0.04));border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:14px 18px;margin-bottom:20px;font-size:13px;color:#E2E8F0;line-height:1.6;">'
-            f'<div><span style="font-weight:700;color:#A5B4FC;margin-right:8px;">✦ EXECUTIVE BRIEFING:</span>{narrative["executive_summary"]}</div>'
+            f'<div><span style="font-weight:700;color:#A5B4FC;margin-right:8px;">✦ EXECUTIVE BRIEFING:</span>{h(narrative["executive_summary"])}</div>'
             f'{anom_badge}'
             f'</div>'
         )
@@ -1146,7 +1175,7 @@ with tab_dash:
     st.markdown(f'<div class="section-title">Automated Executive Takeaways {ai_badge}</div>', unsafe_allow_html=True)
 
     takeaway_cards_html = "".join([
-        f'<div class="insight-card"><div class="insight-title">{t.get("icon", "💡")} {t.get("title", "Key Finding")}</div><div class="insight-body">{t.get("body", "")}</div></div>'
+        f'<div class="insight-card"><div class="insight-title">{h(t.get("icon", "💡"))} {h(t.get("title", "Key Finding"))}</div><div class="insight-body">{h(t.get("body", ""))}</div></div>'
         for t in takeaways[:3]
     ])
 
@@ -1174,15 +1203,15 @@ with tab_deck:
     recs_grid_html = ""
     for r in recs[:4]:
         accent = r.get("accent", accent_tint)
-        recs_grid_html += f'''<div style="background:#111827;border:1px solid #1F2937;border-left:3px solid {accent};border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:{accent};text-transform:uppercase;">{r.get('tag', '')}</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;"><strong>{r.get('title', '')}:</strong> {r.get('body', '')}</div></div>'''
+        recs_grid_html += f'''<div style="background:#111827;border:1px solid #1F2937;border-left:3px solid {accent};border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:{accent};text-transform:uppercase;">{h(r.get('tag', ''))}</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;"><strong>{h(r.get('title', ''))}:</strong> {h(r.get('body', ''))}</div></div>'''
 
     slides = [
         {
             "num": "01",
             "name": "Executive Cover",
             "icon": "🏷️",
-            "tag": f"EXECUTIVE BRIEFING · {report_mode.upper()}",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:20px 0;">{logo_img_tag}<div style="display:inline-block;padding:4px 12px;border-radius:20px;background:rgba(99,102,241,0.15);border:1px solid {accent_tint};color:#A5B4FC;font-size:11px;font-weight:700;letter-spacing:0.08em;margin-bottom:16px;width:fit-content;">✦ EXECUTIVE REPORT · {report_mode.upper()}</div><h1 style="font-size:36px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;letter-spacing:-0.02em;line-height:1.2;">{report_title}</h1><p style="font-size:15px;color:#94A3B8;margin:0 0 24px 0;line-height:1.6;">Automated Executive Analysis & Strategic Action Plan</p><div style="display:flex;gap:20px;font-size:12px;color:#64748B;"><span style="color:{accent_tint};">● Certified Dataset</span><span>{len(df):,} Validated Records</span><span>Confidential · Boardroom Ready</span></div></div>''',
+            "tag": f"EXECUTIVE BRIEFING · {h(report_mode.upper())}",
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:20px 0;">{logo_img_tag}<div style="display:inline-block;padding:4px 12px;border-radius:20px;background:rgba(99,102,241,0.15);border:1px solid {accent_tint};color:#A5B4FC;font-size:11px;font-weight:700;letter-spacing:0.08em;margin-bottom:16px;width:fit-content;">✦ EXECUTIVE REPORT · {h(report_mode.upper())}</div><h1 style="font-size:36px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;letter-spacing:-0.02em;line-height:1.2;">{h(report_title)}</h1><p style="font-size:15px;color:#94A3B8;margin:0 0 24px 0;line-height:1.6;">Automated Executive Analysis & Strategic Action Plan</p><div style="display:flex;gap:20px;font-size:12px;color:#64748B;"><span style="color:{accent_tint};">● Certified Dataset</span><span>{len(df):,} Validated Records</span><span>Confidential · Boardroom Ready</span></div></div>''',
             "notes": speaker_notes.get("slide_1", f"Welcome everyone. Today we are reviewing our executive performance report for {report_title}. We will walk through our high-level KPIs, seasonal trends, category margin health, and strategic growth priorities.")
         },
         {
@@ -1190,7 +1219,7 @@ with tab_deck:
             "name": "KPI Matrix",
             "icon": "📌",
             "tag": "EXECUTIVE HIGHLIGHTS · SLIDE 02",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial & Operational Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_rev_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">↑ {mom_avg:.1f}% Avg MoM</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_profit_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{profit_str}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">{profit_pill}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_margin_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{margin_str}</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">{margin_pill}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{kpi_vol_lbl.upper()}</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">{kpi_aov_lbl}: {fmt(avg_order_val)}</div></div></div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: {kpi_rev_lbl} closed at {fmt(total_revenue)} with healthy margin retention at {margin_str}, indicating disciplined capital allocation and commercial control.</div></div>''',
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial & Operational Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_rev_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">↑ {mom_avg:.1f}% Avg MoM</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_profit_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{profit_str}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">{h(profit_pill)}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_margin_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{margin_str}</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">{h(margin_pill)}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_vol_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">{h(kpi_aov_lbl)}: {fmt(avg_order_val)}</div></div></div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: {h(kpi_rev_lbl)} closed at {fmt(total_revenue)} with healthy margin retention at {margin_str}, indicating disciplined capital allocation and commercial control.</div></div>''',
             "notes": speaker_notes.get("slide_2", f"Slide 2 outlines our bottom-line numbers. Net profit reached {profit_str} on {fmt(total_revenue)} of gross revenue. With an average order value of {fmt(avg_order_val)}, our {margin_str} margins give us substantial headroom to invest in marketing.")
         },
         {
@@ -1198,7 +1227,7 @@ with tab_deck:
             "name": "Trajectory",
             "icon": "📈",
             "tag": "MOMENTUM & SEASONALITY · SLIDE 03",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{meta.get("trend_title", "Annual Trajectory & Peak Analysis")}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;"><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;"><div style="font-size:11px;color:#38BDF8;font-weight:700;text-transform:uppercase;">🏆 Annual High-Water Mark</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{best_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Highest activity concentration recorded. Driven by aligned campaign flights and peak demand velocity.</p></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;"><div style="font-size:11px;color:#F87171;font-weight:700;text-transform:uppercase;">⚠️ Contraction Window</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{worst_month}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Softest period recorded. Represents our primary opportunity for strategic counter-cyclical initiatives.</p></div></div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #38BDF8;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Executive Guidance: Ramp up operational readiness 45 days prior to {best_month} to maximize capture rate.</div></div>''',
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{h(meta.get("trend_title", "Annual Trajectory & Peak Analysis"))}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;"><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;"><div style="font-size:11px;color:#38BDF8;font-weight:700;text-transform:uppercase;">🏆 Annual High-Water Mark</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{h(best_month)}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Highest activity concentration recorded. Driven by aligned campaign flights and peak demand velocity.</p></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;"><div style="font-size:11px;color:#F87171;font-weight:700;text-transform:uppercase;">⚠️ Contraction Window</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{h(worst_month)}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Softest period recorded. Represents our primary opportunity for strategic counter-cyclical initiatives.</p></div></div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #38BDF8;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Executive Guidance: Ramp up operational readiness 45 days prior to {h(best_month)} to maximize capture rate.</div></div>''',
             "notes": speaker_notes.get("slide_3", f"Looking at seasonality on slide 3: our peak performance hit in {best_month}. Conversely, {worst_month} showed our seasonal trough. We recommend timing next year's promotional budget to hedge this exact slow period.")
         },
         {
@@ -1206,7 +1235,7 @@ with tab_deck:
             "name": "Segmentation",
             "icon": "🏆",
             "tag": "PORTFOLIO MIX · SLIDE 04",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{meta.get("category_title", "Portfolio Category & Contribution")}</div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:16px;font-weight:800;color:#F8FAFC;">Top Vertical: {top_cat}</span><span style="font-size:12px;font-weight:700;color:#34D399;background:rgba(16,185,129,0.12);padding:4px 10px;border-radius:12px;">{margin_str} Efficiency Index</span></div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.6;">{top_cat} accounts for the single largest volume and return contribution in our portfolio. Velocity is supported by high organic repeat rates.</p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #C084FC;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Lead Driver Focus:</strong> Double down on top 5 performing units to capture compounding scale.</div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #FBBF24;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Efficiency Expansion:</strong> Audit lower-velocity categories on the cost side to optimize margin.</div></div></div>''',
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{h(meta.get("category_title", "Portfolio Category & Contribution"))}</div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:16px;font-weight:800;color:#F8FAFC;">Top Vertical: {h(top_cat)}</span><span style="font-size:12px;font-weight:700;color:#34D399;background:rgba(16,185,129,0.12);padding:4px 10px;border-radius:12px;">{margin_str} Efficiency Index</span></div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.6;">{h(top_cat)} accounts for the single largest volume and return contribution in our portfolio. Velocity is supported by high organic repeat rates.</p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #C084FC;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Lead Driver Focus:</strong> Double down on top 5 performing units to capture compounding scale.</div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #FBBF24;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Efficiency Expansion:</strong> Audit lower-velocity categories on the cost side to optimize margin.</div></div></div>''',
             "notes": speaker_notes.get("slide_4", f"On slide 4, {top_cat} is our clear anchor category. It produces the bulk of our gross margin. Our recommendation here is to double down on inventory depth for our top 5 SKUs while reviewing cost structures for trailing categories.")
         },
         {
@@ -1214,7 +1243,7 @@ with tab_deck:
             "name": "Action Plan",
             "icon": "📍",
             "tag": "STRATEGIC ROADMAP · SLIDE 05",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{meta.get("region_title", "Strategic Priorities & Next Steps")}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">{recs_grid_html}</div></div>''',
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{h(meta.get("region_title", "Strategic Priorities & Next Steps"))}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">{recs_grid_html}</div></div>''',
             "notes": speaker_notes.get("slide_5", f"Finally, slide 5 gives leadership four immediate action items: First, capture more market share in {top_region}; second, protect our {margin_str} margins; third, launch campaigns to lift {worst_month}; and fourth, test bundle add-ons to increase our {fmt(avg_order_val)} average order value.")
         },
     ]
@@ -1283,17 +1312,20 @@ with tab_deck:
 
     logo_name = logo_file.name if ('logo_file' in locals() and logo_file) else None
     bc_val = brand_color if 'brand_color' in locals() else None
+    bn_val = brand_name if 'brand_name' in locals() else None
     pptx_cache_key = (
-        cache_key,
+        data_hash,
         active_trend,
         active_cat,
         active_region,
         active_metric,
         active_top_n,
         bc_val,
+        bn_val,
         logo_name,
         report_title,
         report_mode,
+        curr_sym,
     )
 
     safe_title = report_title.replace(" ", "_")
@@ -1318,6 +1350,7 @@ with tab_deck:
         if st.button("🚀  Generate Executive PowerPoint Deck (.pptx)", type="primary", use_container_width=True):
             with st.spinner("🎨 Rendering high-resolution chart PNGs and compiling PowerPoint deck..."):
                 import tempfile
+                import chart_engine
                 from chart_engine   import generate_all_charts
                 from slide_builder  import build_presentation
 
@@ -1342,6 +1375,7 @@ with tab_deck:
                     "cat_type":    active_cat,
                     "region_type": active_region,
                     "top_metric":  active_metric,
+                    "brand_color": bc_val,
                 }
 
                 # Isolated temporary directory ensures simultaneous users never overwrite each other's charts/decks
@@ -1354,13 +1388,18 @@ with tab_deck:
                             f.write(logo_file.getbuffer())
 
                     chart_paths = generate_all_charts(report_data, config=chart_config, output_dir=tmp_dir)
+                    export_warns = chart_engine.get_export_warnings()
+                    if export_warns:
+                        st.warning(f"⚠️ Chart export notice: {export_warns[0]}")
+
                     pptx_path   = build_presentation(
                         report_data, chart_paths,
                         report_title=report_title,
                         narrative=narrative,
                         output_dir=tmp_dir,
-                        brand_color=brand_color if 'brand_color' in locals() else None,
-                        logo_path=logo_path
+                        brand_color=bc_val,
+                        logo_path=logo_path,
+                        brand_name=bn_val,
                     )
                     with open(pptx_path, "rb") as f:
                         pptx_bytes = f.read()

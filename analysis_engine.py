@@ -134,9 +134,11 @@ def load_and_validate(filepath: str) -> pd.DataFrame:
 
 def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "Sales & Retail Performance") -> dict:
     mode = report_mode or "Sales & Retail Performance"
+    has_units = "Quantity" in df.columns
+    has_returns = "Returned" in df.columns
     total_orders = len(df)
-    total_units = int(df["Quantity"].sum()) if "Quantity" in df.columns else total_orders
-    return_rate = round((df["Returned"].sum() / total_orders * 100), 2) if "Returned" in df.columns and total_orders else 0.0
+    total_units = int(df["Quantity"].sum()) if has_units else total_orders
+    return_rate = round((df["Returned"].sum() / total_orders * 100), 2) if has_returns and total_orders else 0.0
 
     if "Marketing" in mode:
         # Marketing & Ad Spend: ROAS & CPA
@@ -172,6 +174,8 @@ def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "
             "total_cost": round(total_spend, 2),
             "total_orders": conversions,
             "total_units": total_units,
+            "has_units": has_units,
+            "has_returns": has_returns,
             "avg_order_value": cpa,
             "profit_margin": profit_margin,
             "return_rate": return_rate,
@@ -210,6 +214,8 @@ def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "
             "total_cost": round(actual_expenses, 2),
             "total_orders": total_orders,
             "total_units": total_units,
+            "has_units": has_units,
+            "has_returns": has_returns,
             "avg_order_value": cost_per_order,
             "profit_margin": utilization_pct,
             "return_rate": return_rate,
@@ -248,6 +254,8 @@ def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "
             "total_cost": round(total_cost, 2) if total_cost is not None else None,
             "total_orders": total_orders,
             "total_units": total_units,
+            "has_units": has_units,
+            "has_returns": has_returns,
             "avg_order_value": avg_order_val,
             "profit_margin": profit_margin,
             "return_rate": return_rate,

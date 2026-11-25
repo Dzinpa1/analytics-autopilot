@@ -4,22 +4,22 @@ Assembles the final PowerPoint deck from charts, KPIs, and AI insights.
 Output: output/Analytics_Report.pptx
 """
 
+import os
 from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-from pptx.util import Inches, Pt
-import os
 
 # ── Colours (matching chart_engine palette) ───────────────────────────────────
-C_BLUE   = RGBColor(0x25, 0x63, 0xEB)
-C_PURPLE = RGBColor(0x7C, 0x3A, 0xED)
-C_GREEN  = RGBColor(0x10, 0xB9, 0x81)
-C_AMBER  = RGBColor(0xF5, 0x9E, 0x0B)
-C_WHITE  = RGBColor(0xFF, 0xFF, 0xFF)
-C_DARK   = RGBColor(0x1E, 0x29, 0x3B)
-C_LIGHT  = RGBColor(0xF8, 0xFA, 0xFC)
-C_GRAY   = RGBColor(0x64, 0x74, 0x8B)
+C_BLUE       = RGBColor(0x25, 0x63, 0xEB)
+C_PURPLE     = RGBColor(0x7C, 0x3A, 0xED)
+C_GREEN      = RGBColor(0x10, 0xB9, 0x81)
+C_AMBER      = RGBColor(0xF5, 0x9E, 0x0B)
+C_WHITE      = RGBColor(0xFF, 0xFF, 0xFF)
+C_DARK       = RGBColor(0x1E, 0x29, 0x3B)
+C_DARK_SLATE = RGBColor(0x0F, 0x17, 0x2A)
+C_LIGHT      = RGBColor(0xF8, 0xFA, 0xFC)
+C_GRAY       = RGBColor(0x64, 0x74, 0x8B)
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
 
@@ -38,6 +38,17 @@ def hex_to_rgb(hex_str: str, default=C_BLUE) -> RGBColor:
     return default
 
 
+def get_contrast_color(rgb_color: RGBColor) -> RGBColor:
+    """Returns dark slate #0F172A for light backgrounds, or white #FFFFFF for dark backgrounds."""
+    if not rgb_color:
+        return C_WHITE
+    try:
+        lum = 0.299 * rgb_color[0] + 0.587 * rgb_color[1] + 0.114 * rgb_color[2]
+        return C_DARK_SLATE if lum > 160 else C_WHITE
+    except Exception:
+        return C_WHITE
+
+
 def _add_rect(slide, l, t, w, h, color):
     shape = slide.shapes.add_shape(1, Inches(l), Inches(t), Inches(w), Inches(h))
     shape.fill.solid()
@@ -49,47 +60,62 @@ def _add_rect(slide, l, t, w, h, color):
 def _tf(shape, text, size, bold=False, color=C_DARK, align=PP_ALIGN.LEFT, italic=False):
     tf = shape.text_frame
     tf.word_wrap = True
-    p  = tf.paragraphs[0]
+    p = tf.paragraphs[0]
     p.alignment = align
     run = p.add_run()
     run.text = text
-    run.font.size   = Pt(size)
-    run.font.bold   = bold
+    run.font.size = Pt(size)
+    run.font.bold = bold
     run.font.italic = italic
     run.font.color.rgb = color
 
 
 def _add_textbox(slide, text, l, t, w, h, size=11, bold=False,
-                  color=C_DARK, align=PP_ALIGN.LEFT, italic=False):
+                 color=C_DARK, align=PP_ALIGN.LEFT, italic=False):
     txb = slide.shapes.add_textbox(Inches(l), Inches(t), Inches(w), Inches(h))
     _tf(txb, text, size, bold, color, align, italic)
     return txb
 
 
-def _kpi_card(slide, label, value, l, t, bg_color=C_BLUE):
+def _kpi_card(slide, label, value, l, t, bg_color=C_BLUE, text_color=None):
+    tc = text_color if text_color else get_contrast_color(bg_color)
     _add_rect(slide, l, t, 2.1, 1.1, bg_color)
-    _add_textbox(slide, label, l+0.1, t+0.08, 1.9, 0.35,
-                  size=9, color=C_WHITE, bold=False)
-    _add_textbox(slide, value, l+0.1, t+0.42, 1.9, 0.55,
-                  size=18, bold=True, color=C_WHITE)
+    _add_textbox(slide, label, l + 0.1, t + 0.08, 1.9, 0.35,
+                 size=9, color=tc, bold=False)
+    _add_textbox(slide, value, l + 0.1, t + 0.42, 1.9, 0.55,
+                 size=18, bold=True, color=tc)
 
 
 # ── Slide 1: Title Slide ──────────────────────────────────────────────────────
-def slide_title(prs, report_name="2024 Annual Sales Report", subtitle="Automated Analytics Report", note: str = None, accent_color=None, logo_path=None):
+def slide_title(prs, report_name="2024 Annual Sales Report", subtitle="Automated Analytics Report",
+                note: str = None, accent_color=None, logo_path=None, brand_name: str = None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])   # blank layout
 
     # Background
     bg_primary = accent_color if accent_color else C_BLUE
     _add_rect(slide, 0, 0, 13.33, 7.5, bg_primary)
-    # Accent strip
+    # Accent bottom strip
     _add_rect(slide, 0, 5.8, 13.33, 1.7, C_DARK)
 
-    _add_textbox(slide, "📊 Analytics AutoPilot",
-                 0.5, 1.2, 12, 0.8, size=16, bold=False, color=C_WHITE)
+    # Luminance contrast check for title slide content
+    text_c = get_contrast_color(bg_primary)
+
+    # Brand header logic: white-label support
+    if brand_name:
+        brand_header = f"📊 {brand_name}"
+    elif logo_path and os.path.exists(logo_path):
+        brand_header = ""
+    else:
+        brand_header = "📊 Analytics AutoPilot"
+
+    if brand_header:
+        _add_textbox(slide, brand_header,
+                     0.5, 1.2, 12, 0.8, size=16, bold=False, color=text_c)
+
     _add_textbox(slide, report_name,
-                 0.5, 2.1, 12, 1.5, size=36, bold=True, color=C_WHITE)
+                 0.5, 2.1, 12, 1.5, size=36, bold=True, color=text_c)
     _add_textbox(slide, subtitle,
-                 0.5, 3.8, 12, 0.6, size=16, color=C_WHITE)
+                 0.5, 3.8, 12, 0.6, size=16, color=text_c)
     _add_textbox(slide, "Executive Edition  |  Confidential",
                  0.5, 6.2, 8, 0.5, size=11, color=C_WHITE, italic=True)
 
@@ -113,8 +139,10 @@ def slide_kpis(prs, kpis, insights, meta: dict = None, note: str = None, accent_
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     header_color = accent_color if accent_color else C_DARK
     _add_rect(slide, 0, 0, 13.33, 1.1, header_color)
+
+    header_text_color = get_contrast_color(header_color)
     _add_textbox(slide, "Executive KPI Summary",
-                 0.4, 0.2, 10, 0.75, size=24, bold=True, color=C_WHITE)
+                 0.4, 0.2, 10, 0.75, size=24, bold=True, color=header_text_color)
 
     if logo_path and os.path.exists(logo_path):
         try:
@@ -144,13 +172,28 @@ def slide_kpis(prs, kpis, insights, meta: dict = None, note: str = None, accent_
     for label, val, left, color in cards_r1:
         _kpi_card(slide, label, val, left, 1.4, color)
 
-    # Row 2 — 3 KPI cards
-    cards_r2 = [
-        (aov_label,          f"{sym}{kpis['avg_order_value']:,.2f}",  1.5,  primary_kpi_color),
-        ("Return Rate",      f"{kpis['return_rate']}%",            3.85, C_AMBER),
-        ("Total Units",      f"{kpis['total_units']:,}",           6.2,  C_GREEN),
+    # Row 2 — Dynamic KPI cards (hides Return Rate or Total Units if columns are not mapped)
+    has_returns = kpis.get("has_returns", False)
+    has_units = kpis.get("has_units", False)
+
+    cards_r2_data = [
+        (aov_label, f"{sym}{kpis['avg_order_value']:,.2f}", primary_kpi_color)
     ]
-    for label, val, left, color in cards_r2:
+    if has_returns:
+        cards_r2_data.append(("Return Rate", f"{kpis['return_rate']}%", C_AMBER))
+    if has_units:
+        cards_r2_data.append(("Total Units", f"{kpis['total_units']:,}", C_GREEN))
+
+    # Dynamically space Row 2 cards
+    num_r2 = len(cards_r2_data)
+    if num_r2 == 1:
+        positions_r2 = [5.0]
+    elif num_r2 == 2:
+        positions_r2 = [3.85, 6.2]
+    else:
+        positions_r2 = [1.5, 3.85, 6.2]
+
+    for (label, val, color), left in zip(cards_r2_data, positions_r2):
         _kpi_card(slide, label, val, left, 2.75, color)
 
     # Key highlights section
@@ -159,10 +202,12 @@ def slide_kpis(prs, kpis, insights, meta: dict = None, note: str = None, accent_
                  0.5, 4.2, 12, 0.5, size=13, bold=True, color=C_DARK)
 
     bullets = [
-        f"📈  Best performing period: {insights['best_month']}",
-        f"🏷️   Top vertical: {insights['top_category']}  |  Primary region: {insights['top_region']}",
-        f"🛒  Dominant channel: {insights['top_channel']}",
+        f"📈  Best performing period: {insights.get('best_month', 'N/A')}",
+        f"🏷️   Top vertical: {insights.get('top_category', 'N/A')}  |  Primary region: {insights.get('top_region', 'N/A')}",
     ]
+    if insights.get("top_channel") and insights.get("top_channel") != "N/A":
+        bullets.append(f"🛒  Dominant channel: {insights['top_channel']}")
+
     for i, b in enumerate(bullets):
         _add_textbox(slide, b, 0.6, 4.75 + i * 0.65, 12.4, 0.5, size=12, color=C_DARK)
 
@@ -180,9 +225,11 @@ def slide_trend(prs, chart_path, insights, title: str = None, note: str = None, 
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     header_color = accent_color if accent_color else C_BLUE
     _add_rect(slide, 0, 0, 13.33, 1.0, header_color)
+
+    header_text_color = get_contrast_color(header_color)
     slide_title_text = title or "Monthly Trajectory & Trend"
     _add_textbox(slide, slide_title_text,
-                 0.4, 0.15, 10, 0.75, size=22, bold=True, color=C_WHITE)
+                 0.4, 0.15, 10, 0.75, size=22, bold=True, color=header_text_color)
 
     if logo_path and os.path.exists(logo_path):
         try:
@@ -190,17 +237,14 @@ def slide_trend(prs, chart_path, insights, title: str = None, note: str = None, 
         except Exception:
             pass
 
-    slide.shapes.add_picture(chart_path, Inches(0.3), Inches(1.1),
-                              Inches(12.7), Inches(4.5))
+    # Pass ONLY width to python-pptx so aspect ratio is preserved without vertical distortion
+    slide.shapes.add_picture(chart_path, Inches(0.4), Inches(1.2), width=Inches(12.5))
 
-    _add_rect(slide, 0.3, 5.75, 12.7, 1.55, C_LIGHT)
-    _add_textbox(slide, "Speaker Notes:",
-                 0.5, 5.82, 12, 0.35, size=9, bold=True, color=C_GRAY)
+    # Notes are kept strictly in PowerPoint's native Presenter Notes pane
     if not note:
         note = (f"This chart displays monthly trajectory. "
-                f"Peak performance was achieved in {insights['best_month']}, while {insights['worst_month']} "
+                f"Peak performance was achieved in {insights.get('best_month', 'N/A')}, while {insights.get('worst_month', 'N/A')} "
                 f"recorded lowest activity. We recommend planning resource and marketing allocation accordingly.")
-    _add_textbox(slide, note, 0.5, 6.15, 12.5, 1.1, size=10, color=C_DARK)
     if note:
         try:
             slide.notes_slide.notes_text_frame.text = str(note)
@@ -214,9 +258,11 @@ def slide_category_products(prs, chart_cat, chart_prod, insights, title: str = N
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     header_color = accent_color if accent_color else C_PURPLE
     _add_rect(slide, 0, 0, 13.33, 1.0, header_color)
+
+    header_text_color = get_contrast_color(header_color)
     slide_title_text = title or "Vertical Performance & Rankings"
     _add_textbox(slide, slide_title_text,
-                 0.4, 0.15, 12, 0.75, size=22, bold=True, color=C_WHITE)
+                 0.4, 0.15, 12, 0.75, size=22, bold=True, color=header_text_color)
 
     if logo_path and os.path.exists(logo_path):
         try:
@@ -224,16 +270,14 @@ def slide_category_products(prs, chart_cat, chart_prod, insights, title: str = N
         except Exception:
             pass
 
-    slide.shapes.add_picture(chart_cat,  Inches(0.15), Inches(1.05), Inches(6.6),  Inches(4.0))
-    slide.shapes.add_picture(chart_prod, Inches(6.85), Inches(1.05), Inches(6.3),  Inches(4.0))
+    # Pass ONLY width so both category and product charts preserve native aspect ratio (donuts stay circular!)
+    slide.shapes.add_picture(chart_cat,  Inches(0.25), Inches(1.2), width=Inches(6.2))
+    slide.shapes.add_picture(chart_prod, Inches(6.85), Inches(1.2), width=Inches(6.2))
 
-    _add_rect(slide, 0.15, 5.2, 12.7, 2.1, C_LIGHT)
-    _add_textbox(slide, "Speaker Notes:",
-                 0.4, 5.28, 12, 0.35, size=9, bold=True, color=C_GRAY)
+    # Notes are kept strictly in PowerPoint's native Presenter Notes pane
     if not note:
-        note = (f"{insights['top_category']} leads portfolio volume. "
+        note = (f"{insights.get('top_category', 'Top category')} leads portfolio volume. "
                 f"Focus on expanding high-margin offerings while reviewing cost structures.")
-    _add_textbox(slide, note, 0.4, 5.6, 12.5, 1.5, size=10, color=C_DARK)
     if note:
         try:
             slide.notes_slide.notes_text_frame.text = str(note)
@@ -247,9 +291,11 @@ def slide_region_recommendations(prs, chart_region, insights, title: str = None,
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     header_color = accent_color if accent_color else C_GREEN
     _add_rect(slide, 0, 0, 13.33, 1.0, header_color)
+
+    header_text_color = get_contrast_color(header_color)
     slide_title_text = title or "Geographic Distribution & Strategic Recommendations"
     _add_textbox(slide, slide_title_text,
-                 0.4, 0.15, 12, 0.75, size=20, bold=True, color=C_WHITE)
+                 0.4, 0.15, 12, 0.75, size=20, bold=True, color=header_text_color)
 
     if logo_path and os.path.exists(logo_path):
         try:
@@ -257,15 +303,15 @@ def slide_region_recommendations(prs, chart_region, insights, title: str = None,
         except Exception:
             pass
 
-    slide.shapes.add_picture(chart_region, Inches(0.2), Inches(1.1),
-                              Inches(5.8), Inches(5.5))
+    # Pass ONLY width so donut chart stays a true circle
+    slide.shapes.add_picture(chart_region, Inches(0.25), Inches(1.2), width=Inches(5.8))
 
     if not recs:
         recs = [
-            ("📍  Top Region",    f"{insights['top_region']} leads in volume — prioritize this territory for scaling."),
-            ("🛒  Best Channel",  f"{insights['top_channel']} is the dominant channel. Optimize conversion touchpoints here."),
-            ("📈  Growth Driver", f"Focus on high-impact initiatives during peak cycles ({insights['best_month']})."),
-            ("⚠️   Weak Period",  f"Activity softens in {insights['worst_month']}. Deploy bridge initiatives during this window."),
+            ("📍  Top Region",    f"{insights.get('top_region', 'Primary region')} leads in volume — prioritize this territory for scaling."),
+            ("🛒  Best Channel",  f"{insights.get('top_channel', 'Primary channel')} is the dominant channel. Optimize conversion touchpoints here."),
+            ("📈  Growth Driver", f"Focus on high-impact initiatives during peak cycles ({insights.get('best_month', 'peak period')})."),
+            ("⚠️   Weak Period",  f"Activity softens in {insights.get('worst_month', 'trough period')}. Deploy bridge initiatives during this window."),
         ]
     for i, (title_item, body) in enumerate(recs[:4]):
         top = 1.2 + i * 1.5
@@ -275,7 +321,7 @@ def slide_region_recommendations(prs, chart_region, insights, title: str = None,
 
     if not note:
         note = (f"This slide provides regional distribution and actionable recommendations. "
-                f"Top performing region is {insights['top_region']} with dominant channel {insights['top_channel']}. "
+                f"Top performing region is {insights.get('top_region', 'N/A')} with dominant channel {insights.get('top_channel', 'N/A')}. "
                 f"We recommend prioritizing high-margin categories and scaling into top regions.")
     if note:
         try:
@@ -287,15 +333,17 @@ def slide_region_recommendations(prs, chart_region, insights, title: str = None,
 
 
 # ── Master builder ─────────────────────────────────────────────────────────────
-def build_presentation(report_data: dict, chart_paths: dict, report_title: str = "Analytics Executive Report", narrative: dict = None, output_dir: str = None, brand_color: str = None, logo_path: str = None) -> str:
+def build_presentation(report_data: dict, chart_paths: dict, report_title: str = "Analytics Executive Report",
+                       narrative: dict = None, output_dir: str = None, brand_color: str = None,
+                       logo_path: str = None, brand_name: str = None) -> str:
     prs = Presentation()
     prs.slide_width  = Inches(13.33)
     prs.slide_height = Inches(7.5)
 
-    kpis    = report_data["kpis"]
-    ins     = report_data["insights"]
-    meta    = report_data.get("meta", {})
-    mode    = report_data.get("report_mode", "Sales & Retail Performance")
+    kpis = report_data["kpis"]
+    ins = report_data["insights"]
+    meta = report_data.get("meta", {})
+    mode = report_data.get("report_mode", "Sales & Retail Performance")
 
     notes = narrative.get("speaker_notes", {}) if narrative else {}
     custom_recs = None
@@ -309,17 +357,24 @@ def build_presentation(report_data: dict, chart_paths: dict, report_title: str =
 
     print(f"📝  Building slide deck ({mode})...")
     subtitle_text = f"Executive Edition  |  {mode}"
-    slide_title(prs, report_name=report_title, subtitle=subtitle_text, note=notes.get("slide_1"), accent_color=accent_rgb, logo_path=logo_path)
-    slide_kpis(prs, kpis, ins, meta=meta, note=notes.get("slide_2"), accent_color=accent_rgb, logo_path=logo_path)
-    
+    slide_title(prs, report_name=report_title, subtitle=subtitle_text, note=notes.get("slide_1"),
+                accent_color=accent_rgb, logo_path=logo_path, brand_name=brand_name)
+    slide_kpis(prs, kpis, ins, meta=meta, note=notes.get("slide_2"),
+               accent_color=accent_rgb, logo_path=logo_path)
+
     trend_header = meta.get("trend_title", "Monthly Trajectory & Trend")
-    slide_trend(prs, chart_paths["monthly_trend"], ins, title=trend_header, note=notes.get("slide_3"), accent_color=accent_rgb, logo_path=logo_path)
-    
+    slide_trend(prs, chart_paths["monthly_trend"], ins, title=trend_header,
+                note=notes.get("slide_3"), accent_color=accent_rgb, logo_path=logo_path)
+
     cat_header = f"{meta.get('category_title', 'Vertical Performance')} & Rankings"
-    slide_category_products(prs, chart_paths["category"], chart_paths["top_products"], ins, title=cat_header, note=notes.get("slide_4"), accent_color=accent_rgb, logo_path=logo_path)
-    
+    slide_category_products(prs, chart_paths["category"], chart_paths["top_products"], ins,
+                            title=cat_header, note=notes.get("slide_4"),
+                            accent_color=accent_rgb, logo_path=logo_path)
+
     reg_header = f"{meta.get('region_title', 'Regional Distribution')} & Recommendations"
-    slide_region_recommendations(prs, chart_paths["region"], ins, title=reg_header, recs=custom_recs, note=notes.get("slide_5"), accent_color=accent_rgb, logo_path=logo_path)
+    slide_region_recommendations(prs, chart_paths["region"], ins, title=reg_header,
+                                 recs=custom_recs, note=notes.get("slide_5"),
+                                 accent_color=accent_rgb, logo_path=logo_path)
 
     target_dir = output_dir or OUTPUT_DIR
     os.makedirs(target_dir, exist_ok=True)
@@ -331,10 +386,9 @@ def build_presentation(report_data: dict, chart_paths: dict, report_title: str =
 
 if __name__ == "__main__":
     from analysis_engine import build_report
-    from chart_engine     import generate_all_charts
-    import os
+    from chart_engine import generate_all_charts
 
-    path   = os.path.join(os.path.dirname(__file__), "sales_data.csv")
+    path = os.path.join(os.path.dirname(__file__), "sales_data.csv")
     report = build_report(path)
     charts = generate_all_charts(report)
     build_presentation(report, charts)
