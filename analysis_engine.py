@@ -294,6 +294,276 @@ def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "
         }
 
 
+def detect_time_horizon(df: pd.DataFrame) -> dict:
+    """
+    Detects the true temporal scope of a dataset and classifies it into one of 4 smart horizons:
+    1. 'daily': <= 45 days or 1 calendar month (Intra-month velocity, daily pacing)
+    2. 'monthly': 2 to 5 calendar months (Short multi-month trajectory)
+    3. 'quarterly': 6 to 24 calendar months (Boardroom quarterly rollup + monthly detail)
+    4. 'annual': > 24 calendar months (Multi-year macro cycles)
+    """
+    if "Date" not in df.columns or df["Date"].dropna().empty:
+        return {
+            "horizon": "monthly",
+            "span_days": 365,
+            "unique_months": 12,
+            "unique_years": 1,
+            "desc": "Monthly Trajectory",
+            "min_date": None,
+            "max_date": None,
+        }
+
+    valid_dates = pd.to_datetime(df["Date"].dropna(), errors="coerce").dropna()
+    if valid_dates.empty:
+        return {
+            "horizon": "monthly",
+            "span_days": 365,
+            "unique_months": 12,
+            "unique_years": 1,
+            "desc": "Monthly Trajectory",
+            "min_date": None,
+            "max_date": None,
+        }
+
+    min_date = valid_dates.min()
+    max_date = valid_dates.max()
+    span_days = max(1, (max_date - min_date).days)
+    unique_months = valid_dates.dt.to_period("M").nunique()
+    unique_years = valid_dates.dt.year.nunique()
+
+    if span_days <= 45 or unique_months <= 1:
+        horizon = "daily"
+        if min_date.month == max_date.month and min_date.year == max_date.year:
+            desc = f"Daily Run-Rate ({min_date.strftime('%B %Y')})"
+        else:
+            desc = f"Daily Run-Rate ({min_date.strftime('%b %d')} - {max_date.strftime('%b %d, %Y')})"
+    elif unique_months <= 5:
+        horizon = "monthly"
+        desc = f"{unique_months}-Month Trajectory"
+    elif unique_months <= 24:
+        horizon = "quarterly"
+        desc = f"Quarterly Performance ({unique_months} Months)"
+    else:
+        horizon = "annual"
+        desc = f"Multi-Year Macro ({unique_years} Years)"
+
+    return {
+        "horizon": horizon,
+        "span_days": span_days,
+        "unique_months": unique_months,
+        "unique_years": unique_years,
+        "min_date": min_date,
+        "max_date": max_date,
+        "desc": desc,
+    }
+
+
+def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict, has_profit: bool = True, currency_symbol: str = "$") -> tuple[pd.DataFrame, dict]:
+    """
+    Computes time-series data and insight metadata adapted to the detected time horizon.
+    Guarantees no redundant comparisons (e.g. single-month files comparing Jan to Jan).
+    """
+    horizon = horizon_info["horizon"]
+    min_date = horizon_info.get("min_date")
+    max_date = horizon_info.get("max_date")
+    sym = currency_symbol or "$"
+
+    agg_dict = {"Revenue": ("Revenue", "sum"), "Orders": ("Revenue", "count")}
+    if has_profit and "Profit" in df.columns:
+        agg_dict["Profit"] = ("Profit", "sum")
+
+    if horizon == "daily":
+        df_copy = df.copy()
+        df_copy["Day_Date"] = df_copy["Date"].dt.floor("D")
+        daily = df_copy.groupby("Day_Date").agg(**agg_dict).reset_index()
+        if not has_profit or "Profit" not in daily.columns:
+            daily["Profit"] = 0.0
+
+        if not daily.empty and pd.notna(min_date) and pd.notna(max_date):
+            full_idx = pd.date_range(start=min_date.floor("D"), end=max_date.floor("D"), freq="D")
+            daily = daily.set_index("Day_Date").reindex(full_idx, fill_value=0.0).reset_index()
+            daily.rename(columns={"index": "Day_Date"}, inplace=True)
+            if "Orders" in daily.columns:
+                daily["Orders"] = daily["Orders"].fillna(0).astype(int)
+
+        daily["Month_Label"] = daily["Day_Date"].dt.strftime("%b %d")
+        daily["Period_Label"] = daily["Month_Label"]
+        daily["MoM_Growth"] = daily["Revenue"].pct_change() * 100
+        daily["Is_Partial"] = False
+
+        # Find Peak Day & Softest Day
+        active_days = daily[daily["Revenue"] > 0]
+        peak_idx = daily["Revenue"].idxmax() if not daily.empty else None
+        if active_days is not None and len(active_days) > 1:
+            soft_idx = active_days["Revenue"].idxmin()
+        elif not daily.empty:
+            soft_idx = daily["Revenue"].idxmin()
+        else:
+            soft_idx = None
+
+        if peak_idx is not None:
+            peak_dt = daily.loc[peak_idx, "Day_Date"]
+            peak_day = peak_dt.strftime("%b %d, %Y")
+            peak_weekday = peak_dt.strftime("%A")
+            peak_rev = float(daily.loc[peak_idx, "Revenue"])
+        else:
+            peak_day, peak_weekday, peak_rev = "N/A", "N/A", 0.0
+
+        if soft_idx is not None and soft_idx != peak_idx:
+            soft_dt = daily.loc[soft_idx, "Day_Date"]
+            soft_day = soft_dt.strftime("%b %d, %Y")
+            soft_rev = float(daily.loc[soft_idx, "Revenue"])
+        elif len(daily) > 1:
+            other_indices = [i for i in daily.index if i != peak_idx]
+            soft_idx = other_indices[0]
+            soft_dt = daily.loc[soft_idx, "Day_Date"]
+            soft_day = soft_dt.strftime("%b %d, %Y")
+            soft_rev = float(daily.loc[soft_idx, "Revenue"])
+        else:
+            soft_day, soft_rev = "Baseline Run-Rate", peak_rev
+
+        month_name = min_date.strftime("%B %Y") if pd.notna(min_date) else "Period"
+        trend_title = f"Daily Performance & Run-Rate ({month_name})"
+
+        insights_out = {
+            "time_horizon": "daily",
+            "horizon_desc": horizon_info["desc"],
+            "trend_title": trend_title,
+            "best_period": peak_day,
+            "worst_period": soft_day,
+            "best_period_tag": "🏆 Peak Day Velocity",
+            "worst_period_tag": "⚠️ Softest Day Run-Rate",
+            "best_period_desc": f"Highest single-day velocity recorded ({sym}{peak_rev:,.0f}). Velocity surged on {peak_weekday}.",
+            "worst_period_desc": f"Lowest recorded daily velocity ({sym}{soft_rev:,.0f}). Represents primary opportunity for pacing.",
+            "period_guidance": f"Align daily operational staffing, inventory flow, and ad spend with peak {peak_weekday} velocity.",
+            "growth_rate_metric": "DoD",
+            "avg_growth_rate": round(daily["MoM_Growth"].dropna().mean(), 2) if not daily["MoM_Growth"].dropna().empty else 0.0,
+        }
+        return daily, insights_out
+
+    elif horizon == "quarterly":
+        # 6 to 24 months: Compute quarterly milestone metrics + continuous monthly series
+        df_copy = df.copy()
+        df_copy["Quarter"] = df_copy["Date"].dt.to_period("Q")
+        quarterly = df_copy.groupby("Quarter").agg(**agg_dict).reset_index()
+        quarterly["Quarter_Label"] = quarterly["Quarter"].apply(lambda q: f"Q{q.quarter} {q.year}")
+        if not has_profit or "Profit" not in quarterly.columns:
+            quarterly["Profit"] = 0.0
+
+        best_q_idx = quarterly["Revenue"].idxmax() if not quarterly.empty else None
+        worst_q_idx = quarterly["Revenue"].idxmin() if not quarterly.empty else None
+
+        if best_q_idx is not None and worst_q_idx is not None:
+            best_q = quarterly.loc[best_q_idx, "Quarter_Label"]
+            worst_q = quarterly.loc[worst_q_idx, "Quarter_Label"]
+            best_q_rev = float(quarterly.loc[best_q_idx, "Revenue"])
+            worst_q_rev = float(quarterly.loc[worst_q_idx, "Revenue"])
+            total_q_rev = float(quarterly["Revenue"].sum())
+            best_pct = round((best_q_rev / total_q_rev * 100), 1) if total_q_rev else 0.0
+            worst_pct = round((worst_q_rev / total_q_rev * 100), 1) if total_q_rev else 0.0
+            if best_q == worst_q and len(quarterly) > 1:
+                other_idx = [i for i in quarterly.index if i != best_q_idx]
+                worst_q_idx = other_idx[0]
+                worst_q = quarterly.loc[worst_q_idx, "Quarter_Label"]
+                worst_q_rev = float(quarterly.loc[worst_q_idx, "Revenue"])
+                worst_pct = round((worst_q_rev / total_q_rev * 100), 1) if total_q_rev else 0.0
+        else:
+            best_q, worst_q = "N/A", "N/A"
+            best_q_rev, worst_q_rev, best_pct, worst_pct = 0.0, 0.0, 0.0, 0.0
+
+        monthly = monthly_trend(df, has_profit=has_profit)
+        trend_title = "Quarterly & Monthly Performance Trajectory"
+
+        insights_out = {
+            "time_horizon": "quarterly",
+            "horizon_desc": horizon_info["desc"],
+            "trend_title": trend_title,
+            "best_period": best_q,
+            "worst_period": worst_q,
+            "best_period_tag": "🏆 Peak Fiscal Quarter",
+            "worst_period_tag": "⚠️ Softest Fiscal Quarter",
+            "best_period_desc": f"Delivered {best_pct}% of total volume ({sym}{best_q_rev:,.0f}). Strongest quarterly execution.",
+            "worst_period_desc": f"Generated {worst_pct}% of volume ({sym}{worst_q_rev:,.0f}). Target for counter-cyclical growth initiatives.",
+            "period_guidance": f"Ramp up commercial capacity and marketing budgets 45 days prior to {best_q} to maximize capture rate.",
+            "growth_rate_metric": "MoM",
+            "avg_growth_rate": round(monthly["MoM_Growth"].dropna().mean(), 2) if not monthly.empty else 0.0,
+        }
+        return monthly, insights_out
+
+    elif horizon == "annual":
+        # > 24 months (Multi-Year)
+        df_copy = df.copy()
+        df_copy["Year"] = df_copy["Date"].dt.year
+        annual = df_copy.groupby("Year").agg(**agg_dict).reset_index()
+        if not has_profit or "Profit" not in annual.columns:
+            annual["Profit"] = 0.0
+
+        best_y_idx = annual["Revenue"].idxmax() if not annual.empty else None
+        worst_y_idx = annual["Revenue"].idxmin() if not annual.empty else None
+
+        if best_y_idx is not None:
+            best_y = str(annual.loc[best_y_idx, "Year"])
+            best_y_rev = float(annual.loc[best_y_idx, "Revenue"])
+        else:
+            best_y, best_y_rev = "N/A", 0.0
+
+        if worst_y_idx is not None and worst_y_idx != best_y_idx:
+            worst_y = str(annual.loc[worst_y_idx, "Year"])
+            worst_y_rev = float(annual.loc[worst_y_idx, "Revenue"])
+        elif len(annual) > 1:
+            other_idx = [i for i in annual.index if i != best_y_idx]
+            worst_y = str(annual.loc[other_idx[0], "Year"])
+            worst_y_rev = float(annual.loc[other_idx[0], "Revenue"])
+        else:
+            worst_y, worst_y_rev = "Base Year", best_y_rev
+
+        monthly = monthly_trend(df, has_profit=has_profit)
+        trend_title = "Multi-Year Macro Growth & Trajectory"
+
+        insights_out = {
+            "time_horizon": "annual",
+            "horizon_desc": horizon_info["desc"],
+            "trend_title": trend_title,
+            "best_period": f"FY {best_y}",
+            "worst_period": f"FY {worst_y}",
+            "best_period_tag": "🏆 Peak Fiscal Year",
+            "worst_period_tag": "⚠️ Base / Transition Year",
+            "best_period_desc": f"Record annual output ({sym}{best_y_rev:,.0f}). Anchor period for multi-year expansion.",
+            "worst_period_desc": f"Foundational baseline volume ({sym}{worst_y_rev:,.0f}) before sustained period-over-period acceleration.",
+            "period_guidance": f"Apply structural operational leverage proven in FY {best_y} across upcoming budget cycles.",
+            "growth_rate_metric": "YoY",
+            "avg_growth_rate": round(monthly["MoM_Growth"].dropna().mean(), 2) if not monthly.empty else 0.0,
+        }
+        return monthly, insights_out
+
+    else:
+        # Standard Short Multi-Month (2 to 5 months)
+        monthly = monthly_trend(df, has_profit=has_profit)
+        best_m = monthly.loc[monthly["Revenue"].idxmax(), "Month_Label"] if not monthly.empty else "N/A"
+        worst_m = monthly.loc[monthly["Revenue"].idxmin(), "Month_Label"] if not monthly.empty else "N/A"
+        if best_m == worst_m and len(monthly) > 1:
+            other_m = [m for m in monthly["Month_Label"] if m != best_m]
+            if other_m:
+                worst_m = other_m[0]
+
+        trend_title = "Monthly Revenue & Profit Trajectory"
+        insights_out = {
+            "time_horizon": "monthly",
+            "horizon_desc": horizon_info["desc"],
+            "trend_title": trend_title,
+            "best_period": best_m,
+            "worst_period": worst_m,
+            "best_period_tag": "🏆 Top Monthly Performance",
+            "worst_period_tag": "⚠️ Contraction Window",
+            "best_period_desc": "Highest activity concentration recorded across the multi-month period.",
+            "worst_period_desc": "Softest period recorded. Primary opportunity for strategic counter-cyclical initiatives.",
+            "period_guidance": f"Rebalance promotional calendar and inventory allocation heading into {worst_m}.",
+            "growth_rate_metric": "MoM",
+            "avg_growth_rate": round(monthly["MoM_Growth"].dropna().mean(), 2) if not monthly.empty else 0.0,
+        }
+        return monthly, insights_out
+
+
 def monthly_trend(df: pd.DataFrame, has_profit: bool = True) -> pd.DataFrame:
     df["Month"] = df["Date"].dt.to_period("M")
     agg_dict = {"Revenue": ("Revenue", "sum"), "Orders": ("Revenue", "count")}
@@ -755,7 +1025,8 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     }
 
     kpis     = compute_kpis(clean_df, has_profit=has_profit, report_mode=report_mode)
-    monthly  = monthly_trend(clean_df, has_profit=has_profit)
+    horizon_info = detect_time_horizon(clean_df)
+    monthly, time_insights = compute_adaptive_time_series(clean_df, horizon_info, has_profit=has_profit, currency_symbol=currency_symbol)
     category = category_breakdown(clean_df, has_profit=has_profit)
     region   = region_breakdown(clean_df)
     products = top_products(clean_df, n=10)
@@ -765,8 +1036,10 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
         "Channel": ["Direct"], "Revenue": [kpis["total_revenue"]], "Orders": [kpis["total_orders"]], "Revenue_%": [100.0]
     })
 
-    best_month  = monthly.loc[monthly["Revenue"].idxmax(), "Month_Label"] if not monthly.empty else "N/A"
-    worst_month = monthly.loc[monthly["Revenue"].idxmin(), "Month_Label"] if not monthly.empty else "N/A"
+    best_period  = time_insights.get("best_period", "N/A")
+    worst_period = time_insights.get("worst_period", "N/A")
+    best_month   = best_period
+    worst_month  = worst_period
     avg_mom_growth = monthly["MoM_Growth"].dropna().mean() if not monthly.empty else 0.0
 
     # CMGR (Compound Monthly Growth Rate) computation
@@ -801,6 +1074,9 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
 
     meta_dict = get_mode_kpi_labels(report_mode)
     meta_dict["currency_symbol"] = currency_symbol
+    meta_dict["trend_title"] = time_insights.get("trend_title", meta_dict.get("trend_title", "Performance Trajectory"))
+    meta_dict["time_horizon"] = horizon_info["horizon"]
+    meta_dict["horizon_desc"] = horizon_info["desc"]
 
     return {
         "df":             clean_df,
@@ -816,6 +1092,16 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
         "insights": {
             "best_month":        best_month,
             "worst_month":       worst_month,
+            "best_period":       best_period,
+            "worst_period":      worst_period,
+            "best_period_tag":   time_insights.get("best_period_tag", "🏆 Peak Performance Period"),
+            "worst_period_tag":  time_insights.get("worst_period_tag", "⚠️ Contraction Window"),
+            "best_period_desc":  time_insights.get("best_period_desc", "Highest activity concentration recorded."),
+            "worst_period_desc": time_insights.get("worst_period_desc", "Softest period recorded. Primary opportunity for strategic initiatives."),
+            "period_guidance":   time_insights.get("period_guidance", f"Ramp up operational readiness 45 days prior to {best_period} to maximize capture rate."),
+            "trend_title":       time_insights.get("trend_title", "Performance Trajectory"),
+            "time_horizon":      horizon_info["horizon"],
+            "horizon_desc":      horizon_info["desc"],
             "avg_mom_growth":    round(avg_mom_growth, 2) if not pd.isna(avg_mom_growth) else 0.0,
             "cmgr":              round(cmgr, 2),
             "growth_arrow":      growth_arrow,

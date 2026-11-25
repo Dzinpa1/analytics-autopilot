@@ -1156,9 +1156,10 @@ with tab_dash:
     with ch1:
         st.markdown('<div class="chart-box">', unsafe_allow_html=True)
         c1_head, c1_ctrl = st.columns([2, 1])
+        trend_box_title = insights.get("trend_title") or meta.get("trend_title", "Performance Trajectory")
         with c1_head:
             anom_pill = f'<span style="font-size:10px;font-weight:700;color:#FBBF24;background:rgba(245,158,11,0.15);padding:2px 7px;border-radius:10px;border:1px solid rgba(245,158,11,0.3);margin-left:6px;">⚡ {len(anomalies)} Outlier{"s" if len(anomalies) > 1 else ""}</span>' if anomalies else ""
-            st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Monthly Performance{anom_pill}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{h(trend_box_title)}{anom_pill}</div>', unsafe_allow_html=True)
         with c1_ctrl:
             trend_style = st.selectbox("Style", ["Grouped Bars", "Line & Area", "MoM Growth %"], key="ctrl_trend", label_visibility="collapsed")
 
@@ -1388,6 +1389,15 @@ with tab_deck:
         accent = r.get("accent", accent_tint)
         recs_grid_html += f'''<div style="background:#111827;border:1px solid #1F2937;border-left:3px solid {accent};border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:{accent};text-transform:uppercase;">{h(r.get('tag', ''))}</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;"><strong>{h(r.get('title', ''))}:</strong> {h(r.get('body', ''))}</div></div>'''
 
+    best_period       = insights.get("best_period", best_month)
+    worst_period      = insights.get("worst_period", worst_month)
+    best_period_tag   = insights.get("best_period_tag", "🏆 Annual High-Water Mark")
+    worst_period_tag  = insights.get("worst_period_tag", "⚠️ Contraction Window")
+    best_period_desc  = insights.get("best_period_desc", "Highest activity concentration recorded. Driven by aligned campaign flights and peak demand velocity.")
+    worst_period_desc = insights.get("worst_period_desc", "Softest period recorded. Represents our primary opportunity for strategic counter-cyclical initiatives.")
+    trend_slide_title = insights.get("trend_title") or meta.get("trend_title", "Performance Trajectory & Trend")
+    period_guidance   = insights.get("period_guidance", f"Ramp up operational readiness 45 days prior to {best_period} to maximize capture rate.")
+
     slides = [
         {
             "num": "01",
@@ -1409,9 +1419,9 @@ with tab_deck:
             "num": "03",
             "name": "Trajectory",
             "icon": "📈",
-            "tag": "MOMENTUM & SEASONALITY · SLIDE 03",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{h(meta.get("trend_title", "Annual Trajectory & Peak Analysis"))}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;"><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;"><div style="font-size:11px;color:#38BDF8;font-weight:700;text-transform:uppercase;">🏆 Annual High-Water Mark</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{h(best_month)}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Highest activity concentration recorded. Driven by aligned campaign flights and peak demand velocity.</p></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;"><div style="font-size:11px;color:#F87171;font-weight:700;text-transform:uppercase;">⚠️ Contraction Window</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{h(worst_month)}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">Softest period recorded. Represents our primary opportunity for strategic counter-cyclical initiatives.</p></div></div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #38BDF8;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Executive Guidance: Ramp up operational readiness 45 days prior to {h(best_month)} to maximize capture rate.</div></div>''',
-            "notes": speaker_notes.get("slide_3", f"Looking at seasonality on slide 3: our peak performance hit in {best_month}. Conversely, {worst_month} showed our seasonal trough. We recommend timing next year's promotional budget to hedge this exact slow period.")
+            "tag": "MOMENTUM & PACING · SLIDE 03",
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{h(trend_slide_title)}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;"><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;"><div style="font-size:11px;color:#38BDF8;font-weight:700;text-transform:uppercase;">{h(best_period_tag)}</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{h(best_period)}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">{h(best_period_desc)}</p></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;"><div style="font-size:11px;color:#F87171;font-weight:700;text-transform:uppercase;">{h(worst_period_tag)}</div><div style="font-size:24px;font-weight:800;color:#F8FAFC;margin:8px 0 4px 0;">{h(worst_period)}</div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.5;">{h(worst_period_desc)}</p></div></div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #38BDF8;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Executive Guidance: {h(period_guidance)}</div></div>''',
+            "notes": speaker_notes.get("slide_3", f"Slide 3 outlines our performance trajectory. Peak delivery occurred in {best_period}, while {worst_period} represented our lowest volume period. {period_guidance}")
         },
         {
             "num": "04",
@@ -1427,7 +1437,7 @@ with tab_deck:
             "icon": "📍",
             "tag": "STRATEGIC ROADMAP · SLIDE 05",
             "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{h(meta.get("region_title", "Strategic Priorities & Next Steps"))}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">{recs_grid_html}</div></div>''',
-            "notes": speaker_notes.get("slide_5", f"Finally, slide 5 gives leadership four immediate action items: First, capture more market share in {top_region}; second, protect our {margin_str} margins; third, launch campaigns to lift {worst_month}; and fourth, test bundle add-ons to increase our {fmt(avg_order_val)} average order value.")
+            "notes": speaker_notes.get("slide_5", f"Finally, slide 5 gives leadership four immediate action items: First, capture more market share in {top_region}; second, protect our {margin_str} margins; third, launch campaigns to lift {worst_period}; and fourth, test bundle add-ons to increase our {fmt(avg_order_val)} average order value.")
         },
     ]
 

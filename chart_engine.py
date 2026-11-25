@@ -88,11 +88,15 @@ def _layout(fig, title: str):
 
 # ── Chart 1: Monthly Trend ────────────────────────────────────────────────────
 def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars", has_profit: bool = True,
-                        currency_symbol: str = "$", brand_color: str = None, output_dir: str = None) -> str:
+                        currency_symbol: str = "$", brand_color: str = None, output_dir: str = None,
+                        time_horizon: str = "monthly", trend_title: str = None) -> str:
     go, px = _try_import_plotly()
     sym = currency_symbol if currency_symbol else ""
     primary_c = brand_color or PRIMARY
     fig = go.Figure()
+
+    display_title = trend_title or ("Daily Performance & Velocity" if time_horizon == "daily" else "Monthly Revenue & Profit Trajectory")
+    growth_title = "Day-over-Day Revenue Growth (%)" if time_horizon == "daily" else ("Year-over-Year Revenue Growth (%)" if time_horizon == "annual" else "Period Revenue Growth (%)")
 
     if chart_type == "Line & Area":
         fig.add_trace(go.Scatter(
@@ -109,9 +113,9 @@ def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars",
                 line=dict(color=ACCENT, width=3),
                 marker=dict(size=7, color=ACCENT),
             ))
-            _layout(fig, "Monthly Revenue & Profit Trajectory")
+            _layout(fig, display_title)
         else:
-            _layout(fig, "Monthly Revenue Trajectory")
+            _layout(fig, f"{display_title} (Revenue)")
         fig.update_yaxes(tickprefix=sym, tickformat=",.0f")
 
     elif chart_type == "MoM Growth %":
@@ -122,7 +126,7 @@ def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars",
             text=[f"{v:+.1f}%" if not pd.isna(v) else "0.0%" for v in monthly["MoM_Growth"]],
             textposition="outside",
         ))
-        _layout(fig, "Month-over-Month Revenue Growth (%)")
+        _layout(fig, growth_title)
         fig.update_yaxes(ticksuffix="%")
 
     else:  # Default: Grouped Bars
@@ -138,9 +142,9 @@ def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars",
                 name="Profit", marker_color=ACCENT, opacity=0.9,
             ))
             fig.update_layout(barmode="group")
-            _layout(fig, "Monthly Revenue & Profit (2024)")
+            _layout(fig, display_title)
         else:
-            _layout(fig, "Monthly Revenue Performance")
+            _layout(fig, f"{display_title} (Revenue)")
         fig.update_yaxes(tickprefix=sym, tickformat=",.0f")
 
     return _save_fig(fig, "chart_monthly_trend.png", output_dir=output_dir, width=1100, height=550)
@@ -296,7 +300,9 @@ def generate_all_charts(report_data: dict, config: dict = None, output_dir: str 
     print(f"\n📊  Generating charts with configuration ({target_display}):", config)
     paths = {
         "monthly_trend": chart_monthly_trend(report_data["monthly"], chart_type=trend_type, has_profit=has_profit,
-                                            currency_symbol=curr_sym, brand_color=brand_color, output_dir=output_dir),
+                                            currency_symbol=curr_sym, brand_color=brand_color, output_dir=output_dir,
+                                            time_horizon=report_data.get("insights", {}).get("time_horizon", "monthly"),
+                                            trend_title=report_data.get("insights", {}).get("trend_title")),
         "category":      chart_category(report_data["category"], chart_type=cat_type, has_profit=has_profit,
                                        currency_symbol=curr_sym, brand_color=brand_color, output_dir=output_dir),
         "region":        chart_region(report_data["region"], chart_type=region_type,

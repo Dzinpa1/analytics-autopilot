@@ -238,7 +238,7 @@ def slide_trend(prs, chart_path, insights, title: str = None, note: str = None, 
     _add_rect(slide, 0, 0, 13.33, 1.0, header_color)
 
     header_text_color = get_contrast_color(header_color)
-    slide_title_text = title or "Monthly Trajectory & Trend"
+    slide_title_text = title or insights.get("trend_title", "Performance Trajectory & Trend")
     _add_textbox(slide, slide_title_text,
                  0.4, 0.15, 10, 0.75, size=22, bold=True, color=header_text_color)
 
@@ -253,9 +253,13 @@ def slide_trend(prs, chart_path, insights, title: str = None, note: str = None, 
 
     # Notes are kept strictly in PowerPoint's native Presenter Notes pane
     if not note:
-        note = (f"This chart displays monthly trajectory. "
-                f"Peak performance was achieved in {insights.get('best_month', 'N/A')}, while {insights.get('worst_month', 'N/A')} "
-                f"recorded lowest activity. We recommend planning resource and marketing allocation accordingly.")
+        horizon_desc = insights.get("horizon_desc", "performance trajectory")
+        best_p = insights.get("best_period", insights.get("best_month", "N/A"))
+        worst_p = insights.get("worst_period", insights.get("worst_month", "N/A"))
+        guidance = insights.get("period_guidance", "We recommend planning resource and operational allocation accordingly.")
+        note = (f"This chart displays {horizon_desc}. "
+                f"Peak performance was achieved in {best_p}, while {worst_p} "
+                f"recorded lowest activity. {guidance}")
     if note:
         try:
             slide.notes_slide.notes_text_frame.text = str(note)
@@ -373,7 +377,7 @@ def build_presentation(report_data: dict, chart_paths: dict, report_title: str =
     slide_kpis(prs, kpis, ins, meta=meta, note=notes.get("slide_2"),
                accent_color=accent_rgb, logo_path=logo_path)
 
-    trend_header = meta.get("trend_title", "Monthly Trajectory & Trend")
+    trend_header = ins.get("trend_title") or meta.get("trend_title", "Monthly Trajectory & Trend")
     slide_trend(prs, chart_paths["monthly_trend"], ins, title=trend_header,
                 note=notes.get("slide_3"), accent_color=accent_rgb, logo_path=logo_path)
 
