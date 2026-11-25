@@ -27,7 +27,8 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 /* Global Reset & Base */
-html, body, [data-testid="stAppViewContainer"], .stApp {
+html, body, [data-testid="stAppViewContainer"], [data-testid="stAppViewBlockContainer"], .stApp, .main {
+    background-color: #0B0F19 !important;
     background: #0B0F19 !important;
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
     color: #F8FAFC !important;
@@ -667,6 +668,9 @@ with st.sidebar:
 # COMPUTE METRICS VIA ANALYSIS ENGINE (Single Source of Truth, Cached)
 # ─────────────────────────────────────────────────────────────────────────────
 import hashlib
+import importlib
+import analysis_engine
+importlib.reload(analysis_engine)
 from analysis_engine import build_report_from_df
 
 col_mapping = {

@@ -325,7 +325,7 @@ def get_mode_kpi_labels(report_mode: str = "Sales & Retail Performance") -> dict
         }
 
 
-def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: str = "Sales & Retail Performance", currency_symbol: str = "$") -> dict:
+def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: str = "Sales & Retail Performance", currency_symbol: str = "$", **kwargs) -> dict:
     """
     Core deterministic data engine. Takes any raw or mapped DataFrame,
     normalizes columns, strips currency characters, and computes all KPIs.
@@ -541,9 +541,9 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     }
 
 
-def build_report(filepath: str, report_mode: str = "Sales & Retail Performance", currency_symbol: str = "$") -> dict:
+def build_report(filepath: str, report_mode: str = "Sales & Retail Performance", currency_symbol: str = "$", **kwargs) -> dict:
     df = load_and_validate(filepath)
-    return build_report_from_df(df, report_mode=report_mode, currency_symbol=currency_symbol)
+    return build_report_from_df(df, report_mode=report_mode, currency_symbol=currency_symbol, **kwargs)
 
 
 if __name__ == "__main__":
