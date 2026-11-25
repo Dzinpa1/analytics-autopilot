@@ -114,17 +114,31 @@ def sanitize_numeric_column(series: pd.Series, return_details: bool = False) -> 
     return (cleaned, mod_count, null_count) if return_details else (cleaned, mod_count)
 
 
-def normalize_text_series(series: pd.Series) -> pd.Series:
-    """Trims leading/trailing whitespace, collapses internal multiple spaces, and applies Title Case."""
+def normalize_text_series(series: pd.Series, to_title_case: bool = True) -> pd.Series:
+    """
+    Cleans text series by:
+    1. Trimming leading and trailing whitespace.
+    2. Collapsing multiple internal spaces ('Consumer   Electronics' -> 'Consumer Electronics').
+    3. Applying Title Case (optional).
+    Preserves NaN values without converting them into string 'Nan'.
+    """
     if series is None or series.empty:
         return series
-    return (
-        series.astype(str)
-              .str.strip()
-              .str.replace(r'\s+', ' ', regex=True)
-              .str.title()
-              .replace({"Nan": "Uncategorized", "None": "Uncategorized", "": "Uncategorized"})
+    mask = series.notna()
+    if not mask.any():
+        return series
+
+    cleaned = series.copy()
+    cleaned_vals = (
+        cleaned.loc[mask]
+               .astype(str)
+               .str.strip()
+               .str.replace(r'\s+', ' ', regex=True)
     )
+    if to_title_case:
+        cleaned_vals = cleaned_vals.str.title()
+    cleaned.loc[mask] = cleaned_vals
+    return cleaned
 
 
 def clean_numeric_series(series: pd.Series) -> pd.Series:
@@ -526,7 +540,7 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     quarantine_records = []
 
     # 1. Clean column headers and drop empty Unnamed columns
-    clean_df.columns = [str(c).strip() for c in clean_df.columns]
+    clean_df.columns = [re.sub(r'\s+', ' ', str(c)).strip() for c in clean_df.columns]
     unnamed_cols = [c for c in clean_df.columns if str(c).lower().startswith("unnamed:") and clean_df[c].isna().all()]
     if unnamed_cols:
         clean_df = clean_df.drop(columns=unnamed_cols)
@@ -688,26 +702,23 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     audit_trail.append(f"Validated time series coverage: {date_range_str}")
     audit_trail.append(f"Deterministic calculation of {report_mode} metrics completed")
 
-    # 5. Normalize text columns (Category, Region, Product, Channel)
+    # 5. Normalize text columns across the entire dataset (strip leading/trailing spaces and collapse internal double spaces)
+    key_categories = {"category", "region", "product", "channel", "department", "cost_center"}
+    for col in clean_df.columns:
+        if not pd.api.types.is_numeric_dtype(clean_df[col]) and not pd.api.types.is_datetime64_any_dtype(clean_df[col]):
+            should_title = str(col).lower() in key_categories
+            clean_df[col] = normalize_text_series(clean_df[col], to_title_case=should_title)
+
     if "Category" not in clean_df.columns:
         clean_df["Category"] = "All Categories"
-    else:
-        clean_df["Category"] = normalize_text_series(clean_df["Category"])
 
     if "Region" not in clean_df.columns:
         clean_df["Region"] = "All Regions"
-    else:
-        clean_df["Region"] = normalize_text_series(clean_df["Region"])
 
     if "Product" not in clean_df.columns:
         clean_df["Product"] = clean_df["Category"]
-    else:
-        clean_df["Product"] = normalize_text_series(clean_df["Product"])
 
-    if "Channel" in clean_df.columns:
-        clean_df["Channel"] = normalize_text_series(clean_df["Channel"])
-
-    audit_trail.append("Standardized text fields (trimmed whitespace & applied Title Case)")
+    audit_trail.append("Sanitized text fields (trimmed whitespace, collapsed double spaces & applied Title Case)")
 
     # 6. Assemble quarantined rows dataset
     if quarantine_records:
