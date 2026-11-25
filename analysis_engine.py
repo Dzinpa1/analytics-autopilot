@@ -114,6 +114,19 @@ def sanitize_numeric_column(series: pd.Series, return_details: bool = False) -> 
     return (cleaned, mod_count, null_count) if return_details else (cleaned, mod_count)
 
 
+def normalize_text_series(series: pd.Series) -> pd.Series:
+    """Trims leading/trailing whitespace, collapses internal multiple spaces, and applies Title Case."""
+    if series is None or series.empty:
+        return series
+    return (
+        series.astype(str)
+              .str.strip()
+              .str.replace(r'\s+', ' ', regex=True)
+              .str.title()
+              .replace({"Nan": "Uncategorized", "None": "Uncategorized", "": "Uncategorized"})
+    )
+
+
 def clean_numeric_series(series: pd.Series) -> pd.Series:
     """
     Cleans strings with currency symbols and converts safely to float.
@@ -501,8 +514,8 @@ def get_mode_kpi_labels(report_mode: str = "Sales & Retail Performance") -> dict
 def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: str = "Sales & Retail Performance", currency_symbol: str = "$", **kwargs) -> dict:
     """
     Core deterministic data engine. Takes any raw or mapped DataFrame,
-    normalizes columns, strips currency characters, and computes all KPIs.
-    Single Source of Truth for both the Web UI and PowerPoint Generator.
+    normalizes columns, strips currency characters, deduplicates, filters summary rows,
+    and computes all KPIs. Single Source of Truth for both the Web UI and PowerPoint Generator.
     """
     clean_df = df.copy()
 
@@ -510,6 +523,54 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     symbols_cleaned_total = 0
     nulls_imputed_total = 0
     audit_trail = []
+    quarantine_records = []
+
+    # 1. Clean column headers and drop empty Unnamed columns
+    clean_df.columns = [str(c).strip() for c in clean_df.columns]
+    unnamed_cols = [c for c in clean_df.columns if str(c).lower().startswith("unnamed:") and clean_df[c].isna().all()]
+    if unnamed_cols:
+        clean_df = clean_df.drop(columns=unnamed_cols)
+        audit_trail.append(f"Dropped {len(unnamed_cols)} empty trailing column(s)")
+
+    # 2. Filter out completely blank rows
+    empty_mask = clean_df.isna().all(axis=1)
+    if empty_mask.any():
+        empty_cnt = int(empty_mask.sum())
+        empty_rows = clean_df[empty_mask].copy()
+        empty_rows["quarantine_reason"] = "Completely blank row"
+        quarantine_records.append(empty_rows)
+        clean_df = clean_df[~empty_mask].copy()
+        audit_trail.append(f"Dropped {empty_cnt} completely blank row(s)")
+
+    # 3. Filter out 'Total', 'Grand Total', 'Subtotal' summary rows
+    summary_keywords = {"total", "grand total", "subtotal", "sub total", "totals", "summary", "sum"}
+    is_summary_row = pd.Series(False, index=clean_df.index)
+    for col in clean_df.columns:
+        if not pd.api.types.is_numeric_dtype(clean_df[col]):
+            matches = clean_df[col].astype(str).str.strip().str.lower().isin(summary_keywords)
+            is_summary_row = is_summary_row | matches
+
+    if is_summary_row.any():
+        summary_count = int(is_summary_row.sum())
+        summary_rows = clean_df[is_summary_row].copy()
+        summary_rows["quarantine_reason"] = "Summary / Total row (prevented metric double-counting)"
+        quarantine_records.append(summary_rows)
+        clean_df = clean_df[~is_summary_row].copy()
+        audit_trail.append(f"Excluded {summary_count} summary row(s) ('Total'/'Grand Total' to prevent double-counting)")
+    else:
+        summary_count = 0
+
+    # 4. Remove exact duplicate rows
+    dup_mask = clean_df.duplicated(keep="first")
+    if dup_mask.any():
+        dup_count = int(dup_mask.sum())
+        dup_rows = clean_df[dup_mask].copy()
+        dup_rows["quarantine_reason"] = "Exact duplicate row"
+        quarantine_records.append(dup_rows)
+        clean_df = clean_df[~dup_mask].copy()
+        audit_trail.append(f"Deduplicated {dup_count} exact redundant row(s)")
+    else:
+        dup_count = 0
 
     has_mapped_profit = ("Profit" in df.columns) if not mapping else False
     has_mapped_cost   = ("Cost" in df.columns) if not mapping else False
@@ -627,15 +688,42 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     audit_trail.append(f"Validated time series coverage: {date_range_str}")
     audit_trail.append(f"Deterministic calculation of {report_mode} metrics completed")
 
-    total_modifications = symbols_cleaned_total + nulls_imputed_total + dropped_rows_total
+    # 5. Normalize text columns (Category, Region, Product, Channel)
+    if "Category" not in clean_df.columns:
+        clean_df["Category"] = "All Categories"
+    else:
+        clean_df["Category"] = normalize_text_series(clean_df["Category"])
+
+    if "Region" not in clean_df.columns:
+        clean_df["Region"] = "All Regions"
+    else:
+        clean_df["Region"] = normalize_text_series(clean_df["Region"])
+
+    if "Product" not in clean_df.columns:
+        clean_df["Product"] = clean_df["Category"]
+    else:
+        clean_df["Product"] = normalize_text_series(clean_df["Product"])
+
+    if "Channel" in clean_df.columns:
+        clean_df["Channel"] = normalize_text_series(clean_df["Channel"])
+
+    audit_trail.append("Standardized text fields (trimmed whitespace & applied Title Case)")
+
+    # 6. Assemble quarantined rows dataset
+    if quarantine_records:
+        quarantined_df = pd.concat(quarantine_records, ignore_index=True)
+    else:
+        quarantined_df = pd.DataFrame(columns=list(clean_df.columns) + ["quarantine_reason"])
+
+    total_modifications = symbols_cleaned_total + nulls_imputed_total + dropped_rows_total + dup_count + summary_count
     if total_modifications == 0:
         health_score = 100
         health_status = "Certified Clean"
-    elif nulls_imputed_total == 0 and dropped_rows_total == 0:
+    elif nulls_imputed_total == 0 and dropped_rows_total == 0 and dup_count == 0 and summary_count == 0:
         health_score = 99
         health_status = f"High Integrity ({symbols_cleaned_total} formatted symbols sanitized)"
     else:
-        penalty = min(25, (nulls_imputed_total * 2) + (dropped_rows_total * 5))
+        penalty = min(25, (nulls_imputed_total * 2) + (dropped_rows_total * 4) + (dup_count * 2) + (summary_count * 3))
         health_score = max(70, 100 - penalty)
         health_status = f"Sanitized ({total_modifications} modifications)"
 
@@ -646,20 +734,14 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
         "rows_retained_pct": retention_pct,
         "currency_symbols_stripped": symbols_cleaned_total,
         "missing_values_imputed": nulls_imputed_total,
+        "duplicates_removed": dup_count,
+        "summary_rows_removed": summary_count,
+        "quarantined_rows_count": len(quarantined_df),
         "date_range": date_range_str,
         "health_score": health_score,
         "health_status": health_status,
         "audit_log": audit_trail,
     }
-
-    if "Category" not in clean_df.columns:
-        clean_df["Category"] = "All Categories"
-
-    if "Region" not in clean_df.columns:
-        clean_df["Region"] = "All Regions"
-
-    if "Product" not in clean_df.columns:
-        clean_df["Product"] = clean_df["Category"]
 
     kpis     = compute_kpis(clean_df, has_profit=has_profit, report_mode=report_mode)
     monthly  = monthly_trend(clean_df, has_profit=has_profit)
@@ -710,13 +792,14 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     meta_dict["currency_symbol"] = currency_symbol
 
     return {
-        "df":           clean_df,
-        "kpis":         kpis,
-        "monthly":      monthly,
-        "category":     category,
-        "region":       region,
-        "top_products": products,
-        "channels":     channels,
+        "df":             clean_df,
+        "quarantined_df": quarantined_df,
+        "kpis":           kpis,
+        "monthly":        monthly,
+        "category":       category,
+        "region":         region,
+        "top_products":   products,
+        "channels":       channels,
         "report_mode":  report_mode,
         "meta":         meta_dict,
         "insights": {
