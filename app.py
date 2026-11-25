@@ -1474,10 +1474,6 @@ with tab_deck:
                 <span class="slide-category-tag">{curr_s["tag"]}</span>
             </div>
             {curr_s["html"]}
-            <div class="slide-footer-meta">
-                <span>Analytics AutoPilot · Slide {curr_s["num"]} of 05</span>
-                <span>{report_title} · Confidential</span>
-            </div>
         </div>
         <div class="speaker-notes-box">
             <div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">
@@ -1489,6 +1485,19 @@ with tab_deck:
         </div>
     </div>
     ''', unsafe_allow_html=True)
+
+    # Slide Next/Prev controls
+    c_prev, c_space, c_next = st.columns([1, 4, 1])
+    with c_prev:
+        if st.button("◀ Previous Slide", use_container_width=True, disabled=(st.session_state.slide_idx == 0)):
+            st.session_state.slide_idx -= 1
+            st.rerun()
+    with c_next:
+        if st.button("Next Slide ▶", use_container_width=True, disabled=(st.session_state.slide_idx == len(slides) - 1)):
+            st.session_state.slide_idx += 1
+            st.rerun()
+
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
     # ─────────────────────────────────────────────────────────────────────────────
     # POWERPOINT EXPORT PIPELINE (On-Demand & Cached for Instant Carousel Transitions)
