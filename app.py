@@ -755,14 +755,69 @@ data_hash = hashlib.md5(pd.util.hash_pandas_object(df, index=True).values).hexdi
 def get_cached_report(_df, mapping, mode, curr, data_signature):
     return build_report_from_df(_df, mapping=mapping, report_mode=mode, currency_symbol=curr)
 
-def generate_cleaned_workbook(clean_df: pd.DataFrame, hygiene: dict, quarantined_df: pd.DataFrame) -> bytes:
+def generate_cleaned_workbook(clean_df: pd.DataFrame, hygiene: dict, quarantined_df: pd.DataFrame, currency_symbol: str = "$") -> bytes:
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+    from openpyxl.utils import get_column_letter
+
     output = io.BytesIO()
+    sym = currency_symbol if currency_symbol else "$"
+    curr_fmt = f'"{sym}"#,##0.00'
+
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         export_df = clean_df.copy()
-        if "Date" in export_df.columns and pd.api.types.is_datetime64_any_dtype(export_df["Date"]):
-            export_df["Date"] = export_df["Date"].dt.strftime("%Y-%m-%d")
+        # Keep Date as native Python date objects so openpyxl writes true Excel dates
+        if "Date" in export_df.columns:
+            export_df["Date"] = pd.to_datetime(export_df["Date"], errors="coerce").dt.date
+
         export_df.to_excel(writer, sheet_name="Cleaned_Data", index=False)
 
+        # ── 1. Format Cleaned_Data as an Official Excel Table ────────────────
+        ws_clean = writer.sheets["Cleaned_Data"]
+        max_row = len(export_df) + 1  # include header row
+        max_col = len(export_df.columns)
+        max_col_letter = get_column_letter(max_col)
+
+        date_col_indices = set()
+        curr_col_indices = set()
+        int_col_indices  = set()
+
+        for c_idx, col_name in enumerate(export_df.columns, start=1):
+            col_l = str(col_name).lower()
+            if "date" in col_l:
+                date_col_indices.add(c_idx)
+            elif any(k in col_l for k in ["revenue", "profit", "cost", "spend", "budget", "aov", "price"]):
+                curr_col_indices.add(c_idx)
+            elif any(k in col_l for k in ["quantity", "orders", "units", "conversions", "count"]):
+                int_col_indices.add(c_idx)
+
+        # Apply true Excel number_format rules
+        for row in ws_clean.iter_rows(min_row=2, max_row=max_row, min_col=1, max_col=max_col):
+            for cell in row:
+                if cell.column in date_col_indices:
+                    cell.number_format = 'yyyy-mm-dd'
+                elif cell.column in curr_col_indices and isinstance(cell.value, (int, float)):
+                    cell.number_format = curr_fmt
+                elif cell.column in int_col_indices and isinstance(cell.value, (int, float)):
+                    cell.number_format = '#,##0'
+
+        # Create Table Object with Banded Rows & Filter Dropdowns
+        tab_clean = Table(displayName="CleanedDataTable", ref=f"A1:{max_col_letter}{max_row}")
+        tab_clean.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium9",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False
+        )
+        ws_clean.add_table(tab_clean)
+
+        # Auto-fit column widths
+        for col in ws_clean.columns:
+            col_letter = get_column_letter(col[0].column)
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            ws_clean.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+        # ── 2. Format Audit_Trail Sheet ──────────────────────────────────────
         audit_summary = [
             {"Metric": "Overall Data Health Score", "Value": f"{hygiene.get('health_score', 100)}% ({hygiene.get('health_status', 'Certified Clean')})"},
             {"Metric": "Raw Records Ingested", "Value": hygiene.get("raw_row_count", len(clean_df))},
@@ -782,17 +837,45 @@ def generate_cleaned_workbook(clean_df: pd.DataFrame, hygiene: dict, quarantined
             df_log = pd.DataFrame({"Step": range(1, len(hygiene["audit_log"]) + 1), "Audit Action Completed": hygiene["audit_log"]})
             df_log.to_excel(writer, sheet_name="Audit_Trail", startrow=len(audit_summary) + 3, index=False)
 
+        ws_audit = writer.sheets["Audit_Trail"]
+        for col in ws_audit.columns:
+            col_letter = get_column_letter(col[0].column)
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            ws_audit.column_dimensions[col_letter].width = max(max_len + 4, 18)
+
+        # ── 3. Format Quarantined_Rows Sheet ─────────────────────────────────
         if quarantined_df is not None and not quarantined_df.empty:
             quarantined_df.to_excel(writer, sheet_name="Quarantined_Rows", index=False)
+            ws_quar = writer.sheets["Quarantined_Rows"]
+            q_max_row = len(quarantined_df) + 1
+            q_max_col = len(quarantined_df.columns)
+            q_max_col_letter = get_column_letter(q_max_col)
+
+            tab_quar = Table(displayName="QuarantinedRowsTable", ref=f"A1:{q_max_col_letter}{q_max_row}")
+            tab_quar.tableStyleInfo = TableStyleInfo(
+                name="TableStyleMedium4",
+                showFirstColumn=False,
+                showLastColumn=False,
+                showRowStripes=True,
+                showColumnStripes=False
+            )
+            ws_quar.add_table(tab_quar)
+            for col in ws_quar.columns:
+                col_letter = get_column_letter(col[0].column)
+                max_len = max(len(str(cell.value or '')) for cell in col)
+                ws_quar.column_dimensions[col_letter].width = max(max_len + 4, 14)
         else:
             df_clean_msg = pd.DataFrame([{"Status": "Zero Quarantined Rows", "Message": "All raw rows passed validation and were successfully retained in Cleaned_Data."}])
             df_clean_msg.to_excel(writer, sheet_name="Quarantined_Rows", index=False)
+            ws_quar = writer.sheets["Quarantined_Rows"]
+            ws_quar.column_dimensions["A"].width = 24
+            ws_quar.column_dimensions["B"].width = 80
 
     return output.getvalue()
 
 @st.cache_data(show_spinner=False)
-def get_cached_cleaned_workbook(_clean_df, hygiene, _quarantined_df, data_sig):
-    return generate_cleaned_workbook(_clean_df, hygiene, _quarantined_df)
+def get_cached_cleaned_workbook(_clean_df, hygiene, _quarantined_df, curr, data_sig):
+    return generate_cleaned_workbook(_clean_df, hygiene, _quarantined_df, currency_symbol=curr)
 
 try:
     report_data = get_cached_report(df, col_mapping, report_mode, curr_sym, data_hash)
@@ -803,7 +886,7 @@ except Exception as e:
 clean_export_df = report_data.get("df", df)
 quarantined_df  = report_data.get("quarantined_df", pd.DataFrame())
 safe_filename   = report_title.strip().replace(" ", "_")
-cleaned_wb_bytes = get_cached_cleaned_workbook(clean_export_df, report_data.get("hygiene", {}), quarantined_df, data_hash)
+cleaned_wb_bytes = get_cached_cleaned_workbook(clean_export_df, report_data.get("hygiene", {}), quarantined_df, curr_sym, data_hash)
 
 kpis      = report_data["kpis"]
 monthly   = report_data["monthly"]
