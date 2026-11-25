@@ -6,6 +6,7 @@ Run with:  python -m streamlit run app.py
 
 import html
 import re
+import datetime
 import streamlit as st
 import pandas as pd
 import os, io
@@ -533,10 +534,11 @@ with st.sidebar:
         help="Adapts KPI metrics, AI boardroom commentary, and slide structures to your specific business workflow."
     )
 
+    current_year = datetime.date.today().year
     default_titles = {
-        "Sales & Retail Performance": "2024 Sales Performance Review",
-        "Marketing & Ad Campaign ROI": "2024 Marketing ROI & Ad Spend Review",
-        "Operations & Expense Tracker": "2024 Operations & Expense Report"
+        "Sales & Retail Performance": f"{current_year} Sales Performance Review",
+        "Marketing & Ad Campaign ROI": f"{current_year} Marketing ROI & Ad Spend Review",
+        "Operations & Expense Tracker": f"{current_year} Operations & Expense Report"
     }
 
     # 2. Data Source
@@ -567,7 +569,7 @@ with st.sidebar:
         else:
             suggested_title = f"{clean_stem} Performance Review"
     else:
-        suggested_title = default_titles.get(report_mode, "2024 Executive Performance Review")
+        suggested_title = default_titles.get(report_mode, f"{current_year} Executive Performance Review")
 
     # Sync title with session state when data source or mode changes
     active_source_id = uploaded_file.name if uploaded_file else f"sample_{report_mode}"

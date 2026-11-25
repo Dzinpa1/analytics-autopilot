@@ -7,12 +7,28 @@ import pandas as pd
 import numpy as np
 import os
 
-def generate_sales_data(n_rows=1200, seed=42):
+def generate_sales_data(n_rows=1200, seed=42, year=None):
     np.random.seed(seed)
+    import datetime
+    target_year = year if year is not None else datetime.date.today().year
 
-    # --- Date range: Jan 2024 - Dec 2024 ---
-    dates = pd.date_range(start="2024-01-01", end="2024-12-31", freq="D")
-    date_col = np.random.choice(dates, n_rows)
+    # --- Date range with realistic retail seasonality ---
+    # Q1 (Jan-Feb): Post-holiday dip
+    # Q2-Q3 (Mar-Sep): Steady spring/summer baseline
+    # Q4 (Oct-Dec): Heavy holiday & Black Friday surge
+    dates = pd.date_range(start=f"{target_year}-01-01", end=f"{target_year}-12-31", freq="D")
+    
+    # Generate authentic monthly retail probabilities
+    month_weights = {
+        1: 0.055, 2: 0.050,  # Q1 contraction
+        3: 0.070, 4: 0.075, 5: 0.080,  # Q2 build
+        6: 0.080, 7: 0.080, 8: 0.085,  # Q3 steady
+        9: 0.090, 10: 0.100, 11: 0.125, 12: 0.130  # Q4 peak surge
+    }
+    day_weights = np.array([month_weights[d.month] for d in dates])
+    day_probs = day_weights / day_weights.sum()
+
+    date_col = np.random.choice(dates, n_rows, p=day_probs)
 
     # --- Categories & Products ---
     products = {
@@ -41,9 +57,14 @@ def generate_sales_data(n_rows=1200, seed=42):
     }
     base_prices   = np.array([base_price_map[c] for c in category_col])
     unit_price     = np.round(base_prices * np.random.uniform(0.8, 1.5, n_rows), 2)
-    quantity       = np.random.randint(1, 15, n_rows)
-    revenue        = np.round(unit_price * quantity, 2)
 
+    # Q4 holiday basket size multiplier: larger gift orders in Nov/Dec
+    is_q4 = pd.DatetimeIndex(date_col).month.isin([10, 11, 12])
+    base_qty = np.random.randint(1, 12, n_rows)
+    quantity = np.where(is_q4, np.round(base_qty * np.random.uniform(1.2, 1.6)).astype(int), base_qty)
+    quantity = np.clip(quantity, 1, 25)
+
+    revenue        = np.round(unit_price * quantity, 2)
     cost_pct       = np.random.uniform(0.40, 0.65, n_rows)
     cost           = np.round(revenue * cost_pct, 2)
     profit         = np.round(revenue - cost, 2)

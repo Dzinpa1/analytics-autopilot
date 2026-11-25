@@ -1019,14 +1019,19 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
             except Exception:
                 parsed_dates = pd.to_datetime(clean_df["Date"], errors="coerce")
 
+        non_null_years = parsed_dates.dropna().dt.year
+        fallback_year = int(non_null_years.mode()[0]) if not non_null_years.empty else datetime.date.today().year
+        default_timestamp = pd.Timestamp(f"{fallback_year}-01-01")
+
         null_dates = int(parsed_dates.isna().sum())
         if null_dates > 0:
-            parsed_dates = parsed_dates.fillna(pd.Timestamp("2024-01-01"))
+            parsed_dates = parsed_dates.fillna(default_timestamp)
             nulls_imputed_total += null_dates
-            audit_trail.append(f"Imputed {null_dates} invalid date timestamp(s) to 2024-01-01")
+            audit_trail.append(f"Imputed {null_dates} invalid date timestamp(s) to {default_timestamp.strftime('%Y-%m-%d')}")
         clean_df["Date"] = parsed_dates
     else:
-        clean_df["Date"] = pd.date_range(start="2024-01-01", periods=len(clean_df), freq="D")
+        fallback_year = datetime.date.today().year
+        clean_df["Date"] = pd.date_range(start=f"{fallback_year}-01-01", periods=len(clean_df), freq="D")
         audit_trail.append("Generated baseline date timeline (no Date column mapped)")
 
     # Harden numeric columns against currency symbols, accounting negatives, European decimals, and K/M suffixes
@@ -1191,11 +1196,14 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     else:
         anomaly_headline = "Trajectory remained within expected historical bounds with no abnormal volatility."
 
+    detected_year = int(clean_df["Date"].dt.year.mode()[0]) if "Date" in clean_df.columns and not clean_df["Date"].dropna().empty else datetime.date.today().year
+
     meta_dict = get_mode_kpi_labels(report_mode)
     meta_dict["currency_symbol"] = currency_symbol
     meta_dict["trend_title"] = time_insights.get("trend_title", meta_dict.get("trend_title", "Performance Trajectory"))
     meta_dict["time_horizon"] = horizon_info["horizon"]
     meta_dict["horizon_desc"] = horizon_info["desc"]
+    meta_dict["detected_year"] = detected_year
 
     return {
         "df":             clean_df,
@@ -1213,6 +1221,7 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
             "worst_month":       worst_month,
             "best_period":       best_period,
             "worst_period":      worst_period,
+            "detected_year":     detected_year,
             "best_period_tag":   time_insights.get("best_period_tag", "🏆 Peak Performance Period"),
             "worst_period_tag":  time_insights.get("worst_period_tag", "⚠️ Contraction Window"),
             "best_period_desc":  time_insights.get("best_period_desc", "Highest activity concentration recorded."),
