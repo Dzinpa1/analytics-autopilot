@@ -491,7 +491,6 @@ st.markdown("""
     <div class="ap-logo-group">
         <div class="ap-logo-icon">✦</div>
         <div class="ap-logo-text">AutoPilot <span>Studio</span></div>
-        <div class="ap-badge">Linear Obsidian</div>
     </div>
     <div class="ap-tagline">Automated Analytics & Executive Slide Generation</div>
 </div>
@@ -503,10 +502,6 @@ st.markdown("""
 st.markdown("""
 <div class="hero-box">
     <div class="hero-headline">Turn Raw Spreadsheets into Executive Board Decks</div>
-    <div class="hero-desc">
-        Drop any CSV or Excel file. AutoPilot computes statistical KPIs, generates branded high-density charts,
-        extracts strategic talking points, and compiles a downloadable 5-slide PowerPoint deck instantly.
-    </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1032,7 +1027,7 @@ with tab_dash:
 
     col_kpi_head, col_scope, col_kpi_dl = st.columns([2.6, 1.1, 0.9])
     with col_kpi_head:
-        st.markdown(f'<div class="section-title" style="margin-bottom:0;padding-top:6px;">Core Performance Indicators <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;margin-left:8px;">{h(report_mode)}</span>{hygiene_pill}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="display:flex;align-items:center;gap:8px;padding-top:4px;"><span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;">{h(report_mode)}</span>{hygiene_pill}</div>', unsafe_allow_html=True)
     with col_scope:
         sel_scope_label = st.selectbox(
             "Executive Time Scope",
@@ -1054,23 +1049,24 @@ with tab_dash:
     st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
     if narrative.get("executive_summary"):
-        anom_badge = ""
+        surge_badge_inline = ""
         if anomalies:
             top_a = anomalies[0]
             anom_color = "#34D399" if top_a["type"] == "Surge" else "#F87171"
             anom_bg = "rgba(16, 185, 129, 0.12)" if top_a["type"] == "Surge" else "rgba(248, 113, 113, 0.12)"
             anom_border = "rgba(16, 185, 129, 0.3)" if top_a["type"] == "Surge" else "rgba(248, 113, 113, 0.3)"
-            anom_badge = (
-                f'<div style="margin-top:12px;padding:8px 14px;border-radius:8px;background:{anom_bg};border:1px solid {anom_border};font-size:12px;color:#F8FAFC;display:inline-flex;align-items:center;gap:6px;">'
-                f'<span style="font-weight:700;color:{anom_color};">⚡ STATISTICAL {h(top_a["type"].upper())} DETECTED:</span>'
-                f'{h(top_a["period"])} recorded {top_a["pct_diff_mean"]:+.1f}% vs. baseline ({top_a["z_score"]:+.2f}σ deviation)'
-                f'</div>'
+            surge_badge_inline = (
+                f'<span style="margin-left:8px;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;background:{anom_bg};border:1px solid {anom_border};font-size:11.5px;color:#F8FAFC;font-weight:600;">'
+                f'<span style="color:{anom_color};">⚡ {h(top_a["type"].upper())}:</span> '
+                f'{h(top_a["period"])} {top_a["pct_diff_mean"]:+.1f}% vs. baseline'
+                f'</span>'
             )
 
         briefing_html = (
-            f'<div style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(56,189,248,0.04));border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:14px 18px;margin-bottom:20px;font-size:13px;color:#E2E8F0;line-height:1.6;">'
-            f'<div><span style="font-weight:700;color:#A5B4FC;margin-right:8px;">✦ EXECUTIVE BRIEFING:</span>{h(narrative["executive_summary"])}</div>'
-            f'{anom_badge}'
+            f'<div style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(56,189,248,0.04));border:1px solid rgba(99,102,241,0.22);border-radius:8px;padding:12px 18px;margin-bottom:18px;font-size:13px;color:#E2E8F0;line-height:1.6;">'
+            f'<span style="font-weight:700;color:#A5B4FC;margin-right:6px;">✦ EXECUTIVE BRIEFING:</span>'
+            f'{h(narrative["executive_summary"])}'
+            f'{surge_badge_inline}'
             f'</div>'
         )
         st.markdown(briefing_html, unsafe_allow_html=True)
@@ -1109,20 +1105,18 @@ with tab_dash:
     # ─────────────────────────────────────────────────────────────────────────────
     # HIGH-DENSITY PLOTLY CHARTS (Dark Neon Palette + 1-Click Swappable Views)
     # ─────────────────────────────────────────────────────────────────────────────
-    st.markdown('<div class="section-title">Interactive Analytics Engine · Customizable Visuals</div>', unsafe_allow_html=True)
-
     DARK_BG    = "#111827"
     GRID_COLOR = "#1F2937"
     TEXT_COLOR = "#94A3B8"
     PALETTE    = ["#6366F1", "#38BDF8", "#818CF8", "#0EA5E9", "#A5B4FC", "#64748B"]
 
-    def style_chart(fig, title, n_bars=None):
+    def style_chart(fig, title=None, n_bars=None):
         fig.update_layout(
             paper_bgcolor=DARK_BG,
             plot_bgcolor=DARK_BG,
             font=dict(family="Plus Jakarta Sans", color=TEXT_COLOR),
-            title=dict(text=title, font=dict(size=14, color="#F8FAFC", family="Plus Jakarta Sans"), x=0.03),
-            margin=dict(l=48, r=24, t=54, b=40),
+            title=None,
+            margin=dict(l=40, r=20, t=16, b=36),
             legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT_COLOR)),
         )
         x_kwargs = dict(showgrid=False, linecolor=GRID_COLOR, tickcolor=GRID_COLOR)
@@ -1237,16 +1231,14 @@ with tab_dash:
 
         if cat_style == "Treemap":
             color_col = "Margin_%" if has_profit else "Revenue"
-            treemap_title = f"{cat_col} Revenue Distribution & Margin %" if has_profit else f"{cat_col} Revenue Distribution"
             fig2 = px.treemap(
                 category, path=[cat_col], values="Revenue",
-                color=color_col, color_continuous_scale=["#1E1B4B", "#312E81", "#4F46E5", "#38BDF8"],
-                title=treemap_title
+                color=color_col, color_continuous_scale=["#1E1B4B", "#312E81", "#4F46E5", "#38BDF8"]
             )
             fig2.update_layout(
                 paper_bgcolor=DARK_BG, plot_bgcolor=DARK_BG,
                 font=dict(family="Plus Jakarta Sans", color=TEXT_COLOR),
-                margin=dict(l=20, r=20, t=50, b=20),
+                margin=dict(l=20, r=20, t=16, b=20),
             )
             st.plotly_chart(fig2, use_container_width=True)
         elif cat_style == "Donut":
@@ -1257,8 +1249,7 @@ with tab_dash:
             ))
             fig2.update_layout(
                 paper_bgcolor=DARK_BG,
-                title=dict(text=f"Revenue Share by {cat_col}", font=dict(size=14, color="#F8FAFC"), x=0.03),
-                margin=dict(l=20, r=20, t=50, b=20),
+                margin=dict(l=20, r=20, t=16, b=20),
                 legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT_COLOR)),
             )
             st.plotly_chart(fig2, use_container_width=True)
@@ -1272,8 +1263,7 @@ with tab_dash:
             ))
             fig2.update_xaxes(tickprefix=curr_sym, tickformat=",.0f")
             fig2.update_yaxes(autorange="reversed")
-            bar_title = f"Revenue & Margin by {cat_col}" if has_profit else f"Revenue by {cat_col}"
-            st.plotly_chart(style_chart(fig2, bar_title), use_container_width=True)
+            st.plotly_chart(style_chart(fig2), use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     ch3, ch4 = st.columns(2)
@@ -1294,7 +1284,7 @@ with tab_dash:
                 textposition="outside", textfont=dict(color=TEXT_COLOR, size=10),
             ))
             fig3.update_yaxes(tickprefix=curr_sym, tickformat=",.0f")
-            st.plotly_chart(style_chart(fig3, f"Revenue by {region_col}"), use_container_width=True)
+            st.plotly_chart(style_chart(fig3), use_container_width=True)
         elif region_style == "Pie Chart":
             fig3 = go.Figure(go.Pie(
                 labels=region_df[region_col], values=region_df["Revenue"],
@@ -1303,8 +1293,7 @@ with tab_dash:
             ))
             fig3.update_layout(
                 paper_bgcolor=DARK_BG,
-                title=dict(text=f"Market Share by {region_col}", font=dict(size=14, color="#F8FAFC"), x=0.03),
-                margin=dict(l=20, r=20, t=54, b=20),
+                margin=dict(l=20, r=20, t=16, b=20),
                 legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT_COLOR)),
             )
             st.plotly_chart(fig3, use_container_width=True)
@@ -1317,8 +1306,7 @@ with tab_dash:
             ))
             fig3.update_layout(
                 paper_bgcolor=DARK_BG,
-                title=dict(text=f"Market Distribution by {region_col}", font=dict(size=14, color="#F8FAFC"), x=0.03),
-                margin=dict(l=20, r=20, t=54, b=20),
+                margin=dict(l=20, r=20, t=16, b=20),
                 legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT_COLOR)),
             )
             st.plotly_chart(fig3, use_container_width=True)
@@ -1372,17 +1360,17 @@ with tab_dash:
             fig4.update_yaxes(tickprefix=curr_sym, tickformat=",.0f")
         else:
             fig4.update_yaxes(tickformat=",.0f")
-        prod_chart_title = f"Top {top_n} {sel_cat} by {top_metric}" if sel_cat != "All Categories" else f"Top {top_n} Products by {top_metric}"
-        st.plotly_chart(style_chart(fig4, prod_chart_title), use_container_width=True)
+        fig4.update_xaxes(tickangle=-25)
+        st.plotly_chart(style_chart(fig4, n_bars=len(prod_rank)), use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 
     # ─────────────────────────────────────────────────────────────────────────────
     # EXECUTIVE TALKING POINTS
     # ─────────────────────────────────────────────────────────────────────────────
-    ai_badge = '<span style="margin-left:12px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px;background:rgba(99,102,241,0.2);border:1px solid #6366F1;color:#A5B4FC;">✦ AI-Powered by Gemini</span>' if narrative.get("status") == "ai_generated" else '<span style="margin-left:12px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#94A3B8;">✦ Built-In Analysis</span>'
+    ai_badge = '<span style="margin-left:12px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px;background:rgba(99,102,241,0.2);border:1px solid #6366F1;color:#A5B4FC;">✦ AI-Powered by Gemini</span>' if narrative.get("status") == "ai_generated" else ''
 
-    st.markdown(f'<div class="section-title">Automated Executive Takeaways {ai_badge}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">Automated Executive Takeaways{ai_badge}</div>', unsafe_allow_html=True)
 
     takeaway_cards_html = "".join([
         f'<div class="insight-card"><div class="insight-title">{h(t.get("icon", "💡"))} {h(t.get("title", "Key Finding"))}</div><div class="insight-body">{h(t.get("body", ""))}</div></div>'
@@ -1396,8 +1384,6 @@ with tab_deck:
     # ─────────────────────────────────────────────────────────────────────────────
     # SLIDE CAROUSEL PREVIEW (Interactive 16:9 Deck Viewer)
     # ─────────────────────────────────────────────────────────────────────────────
-    st.markdown('<div class="section-title">Presentation Deck Preview (16:9 Widescreen)</div>', unsafe_allow_html=True)
-
     if "slide_idx" not in st.session_state:
         st.session_state.slide_idx = 0
 
@@ -1430,7 +1416,7 @@ with tab_deck:
             "name": "Executive Cover",
             "icon": "🏷️",
             "tag": f"EXECUTIVE BRIEFING · {h(report_mode.upper())}",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:20px 0;">{logo_img_tag}<div style="display:inline-block;padding:4px 12px;border-radius:20px;background:rgba(99,102,241,0.15);border:1px solid {accent_tint};color:#A5B4FC;font-size:11px;font-weight:700;letter-spacing:0.08em;margin-bottom:16px;width:fit-content;">✦ EXECUTIVE REPORT · {h(report_mode.upper())}</div><h1 style="font-size:36px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;letter-spacing:-0.02em;line-height:1.2;">{h(report_title)}</h1><p style="font-size:15px;color:#94A3B8;margin:0 0 24px 0;line-height:1.6;">Automated Executive Analysis & Strategic Action Plan</p><div style="display:flex;gap:20px;font-size:12px;color:#64748B;"><span style="color:{accent_tint};">● Certified Dataset</span><span>{len(df):,} Validated Records</span><span>Confidential · Boardroom Ready</span></div></div>''',
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:20px 0;">{logo_img_tag}<h1 style="font-size:36px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;letter-spacing:-0.02em;line-height:1.2;">{h(report_title)}</h1><p style="font-size:15px;color:#94A3B8;margin:0 0 24px 0;line-height:1.6;">Automated Executive Analysis & Strategic Action Plan</p><div style="display:flex;gap:20px;font-size:12px;color:#64748B;"><span style="color:{accent_tint};">● Certified Dataset</span><span>{len(df):,} Validated Records</span><span>Confidential · Boardroom Ready</span></div></div>''',
             "notes": speaker_notes.get("slide_1", f"Welcome everyone. Today we are reviewing our executive performance report for {report_title}. We will walk through our high-level KPIs, seasonal trends, category margin health, and strategic growth priorities.")
         },
         {
@@ -1484,7 +1470,6 @@ with tab_deck:
         <div class="deck-stage">
             <div class="slide-top-meta">
                 <span class="slide-category-tag">{curr_s["tag"]}</span>
-                <span class="slide-aspect-tag">16:9 Widescreen Presentation</span>
             </div>
             {curr_s["html"]}
             <div class="slide-footer-meta">
@@ -1494,7 +1479,7 @@ with tab_deck:
         </div>
         <div class="speaker-notes-box">
             <div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">
-                🎤 Recommended Speaker Script (What to say during your meeting):
+                🎤 Speaker Notes
             </div>
             <div style="font-size:13px;color:#CBD5E1;line-height:1.6;font-style:italic;">
                 "{curr_s["notes"]}"
@@ -1503,23 +1488,9 @@ with tab_deck:
     </div>
     ''', unsafe_allow_html=True)
 
-    # Slide Next/Prev controls
-    c_prev, c_space, c_next = st.columns([1, 4, 1])
-    with c_prev:
-        if st.button("◀ Previous Slide", use_container_width=True, disabled=(st.session_state.slide_idx == 0)):
-            st.session_state.slide_idx -= 1
-            st.rerun()
-    with c_next:
-        if st.button("Next Slide ▶", use_container_width=True, disabled=(st.session_state.slide_idx == len(slides) - 1)):
-            st.session_state.slide_idx += 1
-            st.rerun()
-
-
     # ─────────────────────────────────────────────────────────────────────────────
     # POWERPOINT EXPORT PIPELINE (On-Demand & Cached for Instant Carousel Transitions)
     # ─────────────────────────────────────────────────────────────────────────────
-    st.markdown('<div class="section-title">One-Click Slide Deck Export</div>', unsafe_allow_html=True)
-
     if "pptx_cache" not in st.session_state:
         st.session_state.pptx_cache = {}
 
@@ -1573,7 +1544,6 @@ with tab_deck:
                 del st.session_state.pptx_cache[pptx_cache_key]
                 st.rerun()
     else:
-        st.caption("✦ The slide preview above is generated instantly. Compile your 16:9 executive PowerPoint deck when you're ready to export.")
         if st.button("🚀  Generate Executive PowerPoint Deck (.pptx)", type="primary", use_container_width=True):
             with st.spinner("🎨 Rendering high-resolution chart PNGs and compiling PowerPoint deck..."):
                 import tempfile
@@ -1645,5 +1615,3 @@ with tab_deck:
 
                 st.session_state.pptx_cache[pptx_cache_key] = pptx_bytes
                 st.rerun()
-
-    st.caption("✦ Includes all generated charts, KPI summary cards, and speaker notes. Fully editable in PowerPoint & Google Slides.")
