@@ -539,13 +539,8 @@ with st.sidebar:
         "Operations & Expense Tracker": "2024 Operations & Expense Report"
     }
 
-    # 2. Presentation Title
-    st.markdown('<div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-top:14px;margin-bottom:6px;">2. Presentation Title</div>', unsafe_allow_html=True)
-    suggested_title = default_titles.get(report_mode, "2024 Executive Performance Review")
-    report_title = st.text_input("Presentation Title", value=suggested_title, label_visibility="collapsed")
-
-    # 3. Data Source
-    st.markdown('<div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-top:14px;margin-bottom:6px;">3. Data Source (.csv, .xlsx)</div>', unsafe_allow_html=True)
+    # 2. Data Source
+    st.markdown('<div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-top:14px;margin-bottom:6px;">2. Data Source (.csv, .xlsx)</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
         "Upload dataset (.csv, .xlsx, .xls)",
         type=["csv", "xlsx", "xls"],
@@ -561,6 +556,31 @@ with st.sidebar:
         except Exception:
             selected_sheet = 0
     use_sample = st.checkbox("⚡ Load sample dataset", value=False if uploaded_file else True)
+
+    # 3. Presentation Title (Derived dynamically from uploaded file or report mode)
+    st.markdown('<div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-top:14px;margin-bottom:6px;">3. Presentation Title</div>', unsafe_allow_html=True)
+    if uploaded_file:
+        raw_stem = os.path.splitext(uploaded_file.name)[0]
+        clean_stem = re.sub(r'[\s_\-]+', ' ', raw_stem).strip().title()
+        if any(w in clean_stem.lower() for w in ["review", "report", "overview", "deck", "presentation", "analysis"]):
+            suggested_title = clean_stem
+        else:
+            suggested_title = f"{clean_stem} Performance Review"
+    else:
+        suggested_title = default_titles.get(report_mode, "2024 Executive Performance Review")
+
+    # Sync title with session state when data source or mode changes
+    active_source_id = uploaded_file.name if uploaded_file else f"sample_{report_mode}"
+    if st.session_state.get("last_source_id") != active_source_id:
+        st.session_state["last_source_id"] = active_source_id
+        st.session_state["presentation_title_input"] = suggested_title
+
+    report_title = st.text_input(
+        "Presentation Title",
+        value=st.session_state.get("presentation_title_input", suggested_title),
+        key="presentation_title_input",
+        label_visibility="collapsed"
+    )
 
 if not uploaded_file and not use_sample:
     st.info("👈 **Welcome to AutoPilot Studio!**\n\nPlease upload a dataset (.csv or .xlsx) or check **'Load sample dataset'** in the sidebar to generate your executive report.")
@@ -887,6 +907,11 @@ except Exception as e:
 clean_export_df = report_data.get("df", df)
 quarantined_df  = report_data.get("quarantined_df", pd.DataFrame())
 safe_filename   = report_title.strip().replace(" ", "_")
+if uploaded_file:
+    orig_stem = os.path.splitext(uploaded_file.name)[0].strip().replace(" ", "_")
+    clean_export_filename = f"{orig_stem}_Cleaned.xlsx"
+else:
+    clean_export_filename = f"{safe_filename}_Cleaned.xlsx"
 cleaned_wb_bytes = get_cached_cleaned_workbook(clean_export_df, report_data.get("hygiene", {}), quarantined_df, curr_sym, data_hash)
 
 kpis      = report_data["kpis"]
@@ -927,7 +952,7 @@ with st.sidebar:
         st.download_button(
             label="📥 Download Cleaned Workbook (.xlsx)",
             data=cleaned_wb_bytes,
-            file_name=f"{safe_filename}_Cleaned.xlsx",
+            file_name=clean_export_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
             help="Download 3-tab verified Excel file with Cleaned Data, Audit Trail, and Quarantined Rows."
@@ -953,8 +978,15 @@ meta        = report_data.get("meta", {})
 def fmt(v):
     if v is None: return "N/A"
     prefix = curr_sym
-    if v >= 1_000_000: return f"{prefix}{v/1_000_000:.2f}M"
-    elif v >= 1_000:   return f"{prefix}{v/1_000:.1f}K"
+    abs_v = abs(v)
+    if abs_v >= 1_000_000_000_000:
+        return f"{prefix}{v/1_000_000_000_000:.2f}T"
+    elif abs_v >= 1_000_000_000:
+        return f"{prefix}{v/1_000_000_000:.2f}B"
+    elif abs_v >= 1_000_000:
+        return f"{prefix}{v/1_000_000:.2f}M"
+    elif abs_v >= 1_000:
+        return f"{prefix}{v/1_000:.1f}K"
     return f"{prefix}{v:,.0f}"
 
 profit_display = fmt(total_profit) if has_profit and total_profit is not None else "Not Available"
@@ -1034,7 +1066,7 @@ with tab_dash:
         st.download_button(
             label="📥 Cleaned Data (.xlsx)",
             data=cleaned_wb_bytes,
-            file_name=f"{safe_filename}_Cleaned.xlsx",
+            file_name=clean_export_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
             help="Download 3-tab verified Excel workbook (Cleaned Data, Audit Trail, Quarantined Rows)."

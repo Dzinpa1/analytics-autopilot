@@ -158,13 +158,24 @@ def slide_kpis(prs, kpis, insights, meta: dict = None, note: str = None, accent_
     volume_label = meta.get("volume_label", "Total Orders")
     aov_label = meta.get("aov_label", "Avg Order Value")
 
+    def _fmt_kpi(v, prefix="$"):
+        if v is None: return "N/A"
+        abs_v = abs(v)
+        if abs_v >= 1_000_000_000_000:
+            return f"{prefix}{v/1_000_000_000_000:.2f}T"
+        elif abs_v >= 1_000_000_000:
+            return f"{prefix}{v/1_000_000_000:.2f}B"
+        elif abs_v >= 100_000_000:
+            return f"{prefix}{v/1_000_000:.1f}M"
+        return f"{prefix}{v:,.0f}"
+
     # Row 1 — 4 KPI cards
-    profit_display = f"{sym}{kpis['total_profit']:,.0f}" if kpis.get("total_profit") is not None else "N/A"
+    profit_display = _fmt_kpi(kpis.get("total_profit"), sym) if kpis.get("total_profit") is not None else "N/A"
     margin_display = kpis.get("efficiency_display") or (f"{kpis['profit_margin']}%" if kpis.get("profit_margin") is not None else "N/A")
 
     primary_kpi_color = accent_color if accent_color else C_BLUE
     cards_r1 = [
-        (rev_label,     f"{sym}{kpis['total_revenue']:,.0f}",  0.3,  primary_kpi_color),
+        (rev_label,     _fmt_kpi(kpis.get("total_revenue"), sym),  0.3,  primary_kpi_color),
         (profit_label,  profit_display,                     2.65, C_GREEN),
         (margin_label,  margin_display,                     5.0,  C_PURPLE),
         (volume_label,  f"{kpis['total_orders']:,}",        7.35, C_AMBER),
