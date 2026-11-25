@@ -755,11 +755,55 @@ data_hash = hashlib.md5(pd.util.hash_pandas_object(df, index=True).values).hexdi
 def get_cached_report(_df, mapping, mode, curr, data_signature):
     return build_report_from_df(_df, mapping=mapping, report_mode=mode, currency_symbol=curr)
 
+def generate_cleaned_workbook(clean_df: pd.DataFrame, hygiene: dict, quarantined_df: pd.DataFrame) -> bytes:
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        export_df = clean_df.copy()
+        if "Date" in export_df.columns and pd.api.types.is_datetime64_any_dtype(export_df["Date"]):
+            export_df["Date"] = export_df["Date"].dt.strftime("%Y-%m-%d")
+        export_df.to_excel(writer, sheet_name="Cleaned_Data", index=False)
+
+        audit_summary = [
+            {"Metric": "Overall Data Health Score", "Value": f"{hygiene.get('health_score', 100)}% ({hygiene.get('health_status', 'Certified Clean')})"},
+            {"Metric": "Raw Records Ingested", "Value": hygiene.get("raw_row_count", len(clean_df))},
+            {"Metric": "Cleaned Records Retained", "Value": hygiene.get("clean_row_count", len(clean_df))},
+            {"Metric": "Retention Rate", "Value": f"{hygiene.get('rows_retained_pct', 100.0)}%"},
+            {"Metric": "Duplicates Removed", "Value": hygiene.get("duplicates_removed", 0)},
+            {"Metric": "Summary Rows Excluded", "Value": hygiene.get("summary_rows_removed", 0)},
+            {"Metric": "Blank / Dropped Rows", "Value": hygiene.get("dropped_rows_count", 0)},
+            {"Metric": "Quarantined Rows Count", "Value": hygiene.get("quarantined_rows_count", len(quarantined_df) if quarantined_df is not None else 0)},
+            {"Metric": "Currency Symbols & Formats Sanitized", "Value": hygiene.get("currency_symbols_stripped", 0)},
+            {"Metric": "Missing / Null Values Imputed", "Value": hygiene.get("missing_values_imputed", 0)},
+            {"Metric": "Validated Date Timeline", "Value": hygiene.get("date_range", "N/A")},
+        ]
+        pd.DataFrame(audit_summary).to_excel(writer, sheet_name="Audit_Trail", startrow=0, index=False)
+
+        if hygiene.get("audit_log"):
+            df_log = pd.DataFrame({"Step": range(1, len(hygiene["audit_log"]) + 1), "Audit Action Completed": hygiene["audit_log"]})
+            df_log.to_excel(writer, sheet_name="Audit_Trail", startrow=len(audit_summary) + 3, index=False)
+
+        if quarantined_df is not None and not quarantined_df.empty:
+            quarantined_df.to_excel(writer, sheet_name="Quarantined_Rows", index=False)
+        else:
+            df_clean_msg = pd.DataFrame([{"Status": "Zero Quarantined Rows", "Message": "All raw rows passed validation and were successfully retained in Cleaned_Data."}])
+            df_clean_msg.to_excel(writer, sheet_name="Quarantined_Rows", index=False)
+
+    return output.getvalue()
+
+@st.cache_data(show_spinner=False)
+def get_cached_cleaned_workbook(_clean_df, hygiene, _quarantined_df, data_sig):
+    return generate_cleaned_workbook(_clean_df, hygiene, _quarantined_df)
+
 try:
     report_data = get_cached_report(df, col_mapping, report_mode, curr_sym, data_hash)
 except Exception as e:
     st.error(f"⚠️ **Could not process this spreadsheet:** {str(e)}\n\nPlease ensure your Date and Revenue columns contain valid values.")
     st.stop()
+
+clean_export_df = report_data.get("df", df)
+quarantined_df  = report_data.get("quarantined_df", pd.DataFrame())
+safe_filename   = report_title.strip().replace(" ", "_")
+cleaned_wb_bytes = get_cached_cleaned_workbook(clean_export_df, report_data.get("hygiene", {}), quarantined_df, data_hash)
 
 kpis      = report_data["kpis"]
 monthly   = report_data["monthly"]
@@ -794,6 +838,16 @@ with st.sidebar:
             st.markdown('<div style="font-size:11px;font-weight:700;color:#818CF8;margin-bottom:6px;text-transform:uppercase;">Automated Audit Trail:</div>', unsafe_allow_html=True)
             for step in hygiene["audit_log"]:
                 st.markdown(f'<div style="font-size:11px;color:#94A3B8;margin-bottom:3px;">✔ {step}</div>', unsafe_allow_html=True)
+
+        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+        st.download_button(
+            label="📥 Download Cleaned Workbook (.xlsx)",
+            data=cleaned_wb_bytes,
+            file_name=f"{safe_filename}_Cleaned.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            help="Download 3-tab verified Excel file with Cleaned Data, Audit Trail, and Quarantined Rows."
+        )
 
 has_profit    = kpis.get("has_profit", True)
 total_revenue = kpis["total_revenue"]
@@ -888,7 +942,20 @@ with tab_dash:
     # ─────────────────────────────────────────────────────────────────────────────
     status_suffix = "Certified" if hygiene.get("health_score", 100) == 100 else "Sanitized"
     hygiene_pill = f'<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);color:#34D399;margin-left:8px;">✔ {hygiene.get("clean_row_count", len(df)):,} Records {status_suffix}</span>'
-    st.markdown(f'<div class="section-title">Core Performance Indicators <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;margin-left:8px;">{h(report_mode)}</span>{hygiene_pill}</div>', unsafe_allow_html=True)
+
+    col_kpi_head, col_kpi_dl = st.columns([3, 1])
+    with col_kpi_head:
+        st.markdown(f'<div class="section-title" style="margin-bottom:0;padding-top:4px;">Core Performance Indicators <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;margin-left:8px;">{h(report_mode)}</span>{hygiene_pill}</div>', unsafe_allow_html=True)
+    with col_kpi_dl:
+        st.download_button(
+            label="📥 Cleaned Data (.xlsx)",
+            data=cleaned_wb_bytes,
+            file_name=f"{safe_filename}_Cleaned.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            help="Download 3-tab verified Excel workbook (Cleaned Data, Audit Trail, Quarantined Rows)."
+        )
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
     if narrative.get("executive_summary"):
         anom_badge = ""
