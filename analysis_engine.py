@@ -360,22 +360,109 @@ def detect_time_horizon(df: pd.DataFrame) -> dict:
     }
 
 
-def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict, has_profit: bool = True, currency_symbol: str = "$") -> tuple[pd.DataFrame, dict]:
+def get_available_time_scopes(df: pd.DataFrame) -> dict:
     """
-    Computes time-series data and insight metadata adapted to the detected time horizon.
-    Guarantees no redundant comparisons (e.g. single-month files comparing Jan to Jan).
+    Returns detected years, span, and recommended granularities for interactive drilldowns.
     """
-    horizon = horizon_info["horizon"]
-    min_date = horizon_info.get("min_date")
-    max_date = horizon_info.get("max_date")
+    if df is None or "Date" not in df.columns or df["Date"].dropna().empty:
+        curr_y = datetime.date.today().year
+        return {
+            "years": [curr_y],
+            "is_multi_year": False,
+            "default_year": curr_y,
+            "granularities": ["Monthly", "Quarterly", "Daily"],
+            "unique_months": 12,
+            "span_days": 365,
+        }
+
+    valid_dates = pd.to_datetime(df["Date"].dropna(), errors="coerce").dropna()
+    if valid_dates.empty:
+        curr_y = datetime.date.today().year
+        return {
+            "years": [curr_y],
+            "is_multi_year": False,
+            "default_year": curr_y,
+            "granularities": ["Monthly", "Quarterly", "Daily"],
+            "unique_months": 12,
+            "span_days": 365,
+        }
+
+    years = sorted([int(y) for y in valid_dates.dt.year.unique()])
+    is_multi_year = len(years) > 1
+    span_days = max(1, (valid_dates.max() - valid_dates.min()).days)
+    unique_months = valid_dates.dt.to_period("M").nunique()
+
+    if is_multi_year:
+        granularities = ["Yearly", "Quarterly", "Monthly"]
+    elif span_days <= 45 or unique_months <= 1:
+        granularities = ["Daily", "Monthly"]
+    else:
+        granularities = ["Monthly", "Quarterly", "Daily"]
+
+    return {
+        "years": years,
+        "is_multi_year": is_multi_year,
+        "default_year": years[-1] if years else datetime.date.today().year,
+        "granularities": granularities,
+        "unique_months": unique_months,
+        "span_days": span_days,
+    }
+
+
+def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict = None, target_year=None,
+                                granularity: str = "auto", has_profit: bool = True,
+                                currency_symbol: str = "$") -> tuple[pd.DataFrame, dict]:
+    """
+    Computes time-series data and insight metadata adapted to the detected time horizon or user drilldown scope.
+    Guarantees no redundant comparisons (e.g. single-month files comparing Jan to Jan) and eliminates
+    repetitive year suffixes in labels when viewing a single year.
+    """
     sym = currency_symbol or "$"
 
+    # 1. Filter by target_year if specified
+    if target_year is not None and str(target_year).strip().lower() not in ("all", "all years", "all years (macro)", "none", ""):
+        try:
+            y_int = int(target_year)
+            df_active = df[df["Date"].dt.year == y_int].copy()
+            if df_active.empty:
+                df_active = df.copy()
+                target_year = None
+            else:
+                target_year = y_int
+        except Exception:
+            df_active = df.copy()
+            target_year = None
+    else:
+        df_active = df.copy()
+        target_year = None
+
+    if horizon_info is None:
+        horizon_info = detect_time_horizon(df_active)
+
+    min_date = df_active["Date"].min() if not df_active.empty else horizon_info.get("min_date")
+    max_date = df_active["Date"].max() if not df_active.empty else horizon_info.get("max_date")
+
     agg_dict = {"Revenue": ("Revenue", "sum"), "Orders": ("Revenue", "count")}
-    if has_profit and "Profit" in df.columns:
+    if has_profit and "Profit" in df_active.columns:
         agg_dict["Profit"] = ("Profit", "sum")
 
-    if horizon == "daily":
-        df_copy = df.copy()
+    # 2. Resolve active granularity
+    if granularity == "auto":
+        active_granularity = horizon_info["horizon"]
+    else:
+        g_map = {"yearly": "annual", "annual": "annual", "quarterly": "quarterly", "monthly": "monthly", "daily": "daily"}
+        active_granularity = g_map.get(str(granularity).lower(), "monthly")
+
+    # Check if this active slice represents a single calendar year
+    num_years_in_slice = df_active["Date"].dt.year.nunique() if ("Date" in df_active.columns and not df_active["Date"].dropna().empty) else 1
+    is_single_year_slice = (target_year is not None) or (num_years_in_slice <= 1)
+    slice_year = target_year or (int(df_active["Date"].dt.year.mode()[0]) if num_years_in_slice >= 1 else datetime.date.today().year)
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # CASE A: DAILY DRILLDOWN
+    # ─────────────────────────────────────────────────────────────────────────────
+    if active_granularity == "daily":
+        df_copy = df_active.copy()
         df_copy["Day_Date"] = df_copy["Date"].dt.floor("D")
         daily = df_copy.groupby("Day_Date").agg(**agg_dict).reset_index()
         if not has_profit or "Profit" not in daily.columns:
@@ -424,11 +511,13 @@ def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict, has_profi
         else:
             soft_day, soft_rev = "Baseline Run-Rate", peak_rev
 
-        month_name = min_date.strftime("%B %Y") if pd.notna(min_date) else "Period"
+        month_name = min_date.strftime("%B %Y") if pd.notna(min_date) else f"FY {slice_year}"
         trend_title = f"Daily Performance & Run-Rate ({month_name})"
 
         insights_out = {
             "time_horizon": "daily",
+            "granularity": "daily",
+            "target_year": target_year,
             "horizon_desc": horizon_info["desc"],
             "trend_title": trend_title,
             "best_period": peak_day,
@@ -440,17 +529,35 @@ def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict, has_profi
             "period_guidance": f"Align daily operational staffing, inventory flow, and ad spend with peak {peak_weekday} velocity.",
             "growth_rate_metric": "DoD",
             "avg_growth_rate": round(daily["MoM_Growth"].dropna().mean(), 2) if not daily["MoM_Growth"].dropna().empty else 0.0,
+            "x_tick_angle": 0,
         }
         return daily, insights_out
 
-    elif horizon == "quarterly":
-        # 6 to 24 months: Compute quarterly milestone metrics + continuous monthly series
-        df_copy = df.copy()
+    # ─────────────────────────────────────────────────────────────────────────────
+    # CASE B: QUARTERLY DRILLDOWN
+    # ─────────────────────────────────────────────────────────────────────────────
+    elif active_granularity == "quarterly":
+        df_copy = df_active.copy()
         df_copy["Quarter"] = df_copy["Date"].dt.to_period("Q")
         quarterly = df_copy.groupby("Quarter").agg(**agg_dict).reset_index()
-        quarterly["Quarter_Label"] = quarterly["Quarter"].apply(lambda q: f"Q{q.quarter} {q.year}")
         if not has_profit or "Profit" not in quarterly.columns:
             quarterly["Profit"] = 0.0
+
+        if is_single_year_slice:
+            # Single year: clean Q1, Q2, Q3, Q4 with no repetitive year suffix!
+            quarterly["Quarter_Label"] = quarterly["Quarter"].apply(lambda q: f"Q{q.quarter}")
+            trend_title = f"Quarterly Performance Trajectory ({slice_year})"
+        else:
+            # Multi-year: compact Q1 '24, Q2 '24
+            quarterly["Quarter_Label"] = quarterly["Quarter"].apply(lambda q: f"Q{q.quarter} '{str(q.year)[-2:]}")
+            min_y = df_active["Date"].dt.year.min()
+            max_y = df_active["Date"].dt.year.max()
+            trend_title = f"Quarterly Trajectory ({min_y} - {max_y})"
+
+        quarterly["Month_Label"] = quarterly["Quarter_Label"]
+        quarterly["Period_Label"] = quarterly["Quarter_Label"]
+        quarterly["MoM_Growth"] = quarterly["Revenue"].pct_change() * 100
+        quarterly["Is_Partial"] = False
 
         best_q_idx = quarterly["Revenue"].idxmax() if not quarterly.empty else None
         worst_q_idx = quarterly["Revenue"].idxmin() if not quarterly.empty else None
@@ -473,32 +580,39 @@ def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict, has_profi
             best_q, worst_q = "N/A", "N/A"
             best_q_rev, worst_q_rev, best_pct, worst_pct = 0.0, 0.0, 0.0, 0.0
 
-        monthly = monthly_trend(df, has_profit=has_profit)
-        trend_title = "Quarterly & Monthly Performance Trajectory"
-
         insights_out = {
             "time_horizon": "quarterly",
+            "granularity": "quarterly",
+            "target_year": target_year,
             "horizon_desc": horizon_info["desc"],
             "trend_title": trend_title,
-            "best_period": best_q,
-            "worst_period": worst_q,
+            "best_period": f"{best_q} {slice_year}" if is_single_year_slice and not best_q.endswith(str(slice_year)) else best_q,
+            "worst_period": f"{worst_q} {slice_year}" if is_single_year_slice and not worst_q.endswith(str(slice_year)) else worst_q,
             "best_period_tag": "🏆 Peak Fiscal Quarter",
             "worst_period_tag": "⚠️ Softest Fiscal Quarter",
             "best_period_desc": f"Delivered {best_pct}% of total volume ({sym}{best_q_rev:,.0f}). Strongest quarterly execution.",
             "worst_period_desc": f"Generated {worst_pct}% of volume ({sym}{worst_q_rev:,.0f}). Target for counter-cyclical growth initiatives.",
             "period_guidance": f"Ramp up commercial capacity and marketing budgets 45 days prior to {best_q} to maximize capture rate.",
-            "growth_rate_metric": "MoM",
-            "avg_growth_rate": round(monthly["MoM_Growth"].dropna().mean(), 2) if not monthly.empty else 0.0,
+            "growth_rate_metric": "QoQ",
+            "avg_growth_rate": round(quarterly["MoM_Growth"].dropna().mean(), 2) if not quarterly.empty else 0.0,
+            "x_tick_angle": 0,
         }
-        return monthly, insights_out
+        return quarterly, insights_out
 
-    elif horizon == "annual":
-        # > 24 months (Multi-Year)
-        df_copy = df.copy()
+    # ─────────────────────────────────────────────────────────────────────────────
+    # CASE C: ANNUAL MACRO DRILLDOWN
+    # ─────────────────────────────────────────────────────────────────────────────
+    elif active_granularity == "annual":
+        df_copy = df_active.copy()
         df_copy["Year"] = df_copy["Date"].dt.year
         annual = df_copy.groupby("Year").agg(**agg_dict).reset_index()
         if not has_profit or "Profit" not in annual.columns:
             annual["Profit"] = 0.0
+
+        annual["Month_Label"] = annual["Year"].astype(str)
+        annual["Period_Label"] = annual["Month_Label"]
+        annual["MoM_Growth"] = annual["Revenue"].pct_change() * 100
+        annual["Is_Partial"] = False
 
         best_y_idx = annual["Revenue"].idxmax() if not annual.empty else None
         worst_y_idx = annual["Revenue"].idxmin() if not annual.empty else None
@@ -519,11 +633,15 @@ def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict, has_profi
         else:
             worst_y, worst_y_rev = "Base Year", best_y_rev
 
-        monthly = monthly_trend(df, has_profit=has_profit)
-        trend_title = "Multi-Year Macro Growth & Trajectory"
+        if len(annual) > 1:
+            trend_title = f"Annual Macro Growth (FY {annual['Year'].min()} - FY {annual['Year'].max()})"
+        else:
+            trend_title = f"Annual Performance Trajectory (FY {best_y})"
 
         insights_out = {
             "time_horizon": "annual",
+            "granularity": "annual",
+            "target_year": target_year,
             "horizon_desc": horizon_info["desc"],
             "trend_title": trend_title,
             "best_period": f"FY {best_y}",
@@ -534,13 +652,45 @@ def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict, has_profi
             "worst_period_desc": f"Foundational baseline volume ({sym}{worst_y_rev:,.0f}) before sustained period-over-period acceleration.",
             "period_guidance": f"Apply structural operational leverage proven in FY {best_y} across upcoming budget cycles.",
             "growth_rate_metric": "YoY",
-            "avg_growth_rate": round(monthly["MoM_Growth"].dropna().mean(), 2) if not monthly.empty else 0.0,
+            "avg_growth_rate": round(annual["MoM_Growth"].dropna().mean(), 2) if not annual.empty else 0.0,
+            "x_tick_angle": 0,
         }
-        return monthly, insights_out
+        return annual, insights_out
 
+    # ─────────────────────────────────────────────────────────────────────────────
+    # CASE D: MONTHLY DRILLDOWN (Default)
+    # ─────────────────────────────────────────────────────────────────────────────
     else:
-        # Standard Short Multi-Month (2 to 5 months)
-        monthly = monthly_trend(df, has_profit=has_profit)
+        df_copy = df_active.copy()
+        df_copy["Month"] = df_copy["Date"].dt.to_period("M")
+        monthly = df_copy.groupby("Month").agg(**agg_dict).reset_index()
+        if not has_profit or "Profit" not in monthly.columns:
+            monthly["Profit"] = 0.0
+
+        # Continuous monthly reindexing
+        if not monthly.empty:
+            full_idx = pd.period_range(start=monthly["Month"].min(), end=monthly["Month"].max(), freq="M")
+            monthly = monthly.set_index("Month").reindex(full_idx, fill_value=0.0).reset_index()
+            monthly = monthly.rename(columns={"index": "Month"})
+            if "Orders" in monthly.columns:
+                monthly["Orders"] = monthly["Orders"].fillna(0).astype(int)
+
+        if is_single_year_slice:
+            # Single year: clean 3-letter months with NO repetitive year suffix!
+            # E.g. Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec
+            monthly["Month_Label"] = monthly["Month"].dt.strftime("%b")
+            trend_title = f"Monthly Revenue vs Net Profit ({slice_year})" if has_profit else f"Monthly Revenue Trajectory ({slice_year})"
+        else:
+            # Multi-year monthly: compact Jan '25, Feb '25
+            monthly["Month_Label"] = monthly["Month"].apply(lambda m: f"{m.strftime('%b')} '{str(m.year)[-2:]}")
+            min_y = df_active["Date"].dt.year.min()
+            max_y = df_active["Date"].dt.year.max()
+            trend_title = f"Monthly Trajectory ({min_y} - {max_y})"
+
+        monthly["Period_Label"] = monthly["Month_Label"]
+        monthly["MoM_Growth"] = monthly["Revenue"].pct_change() * 100
+        monthly["Is_Partial"] = False
+
         best_m = monthly.loc[monthly["Revenue"].idxmax(), "Month_Label"] if not monthly.empty else "N/A"
         worst_m = monthly.loc[monthly["Revenue"].idxmin(), "Month_Label"] if not monthly.empty else "N/A"
         if best_m == worst_m and len(monthly) > 1:
@@ -548,20 +698,25 @@ def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict, has_profi
             if other_m:
                 worst_m = other_m[0]
 
-        trend_title = "Monthly Revenue & Profit Trajectory"
+        best_m_full = f"{best_m} {slice_year}" if is_single_year_slice and not best_m.endswith(str(slice_year)) else best_m
+        worst_m_full = f"{worst_m} {slice_year}" if is_single_year_slice and not worst_m.endswith(str(slice_year)) else worst_m
+
         insights_out = {
             "time_horizon": "monthly",
+            "granularity": "monthly",
+            "target_year": target_year,
             "horizon_desc": horizon_info["desc"],
             "trend_title": trend_title,
-            "best_period": best_m,
-            "worst_period": worst_m,
-            "best_period_tag": "🏆 Top Monthly Performance",
+            "best_period": best_m_full,
+            "worst_period": worst_m_full,
+            "best_period_tag": "🏆 Peak Monthly Velocity",
             "worst_period_tag": "⚠️ Contraction Window",
             "best_period_desc": "Highest activity concentration recorded across the multi-month period.",
             "worst_period_desc": "Softest period recorded. Primary opportunity for strategic counter-cyclical initiatives.",
-            "period_guidance": f"Rebalance promotional calendar and inventory allocation heading into {worst_m}.",
+            "period_guidance": f"Ramp up operational readiness 45 days prior to {best_m_full} to maximize capture rate.",
             "growth_rate_metric": "MoM",
             "avg_growth_rate": round(monthly["MoM_Growth"].dropna().mean(), 2) if not monthly.empty else 0.0,
+            "x_tick_angle": 0,
         }
         return monthly, insights_out
 
@@ -1151,6 +1306,7 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     }
 
     kpis     = compute_kpis(clean_df, has_profit=has_profit, report_mode=report_mode)
+    time_scopes = get_available_time_scopes(clean_df)
     horizon_info = detect_time_horizon(clean_df)
     monthly, time_insights = compute_adaptive_time_series(clean_df, horizon_info, has_profit=has_profit, currency_symbol=currency_symbol)
     category = category_breakdown(clean_df, has_profit=has_profit)
@@ -1218,6 +1374,7 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
         "channels":       channels,
         "report_mode":  report_mode,
         "meta":         meta_dict,
+        "time_scopes":  time_scopes,
         "insights": {
             "best_month":        best_month,
             "worst_month":       worst_month,

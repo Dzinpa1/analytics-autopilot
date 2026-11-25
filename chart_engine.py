@@ -147,6 +147,9 @@ def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars",
             _layout(fig, f"{display_title} (Revenue)")
         fig.update_yaxes(tickprefix=sym, tickformat=",.0f")
 
+    if len(monthly) <= 14:
+        fig.update_xaxes(tickangle=0)
+
     return _save_fig(fig, "chart_monthly_trend.png", output_dir=output_dir, width=1100, height=550)
 
 

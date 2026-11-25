@@ -1069,7 +1069,7 @@ with tab_dash:
     TEXT_COLOR = "#94A3B8"
     PALETTE    = ["#6366F1", "#38BDF8", "#818CF8", "#0EA5E9", "#A5B4FC", "#64748B"]
 
-    def style_chart(fig, title):
+    def style_chart(fig, title, n_bars=None):
         fig.update_layout(
             paper_bgcolor=DARK_BG,
             plot_bgcolor=DARK_BG,
@@ -1078,7 +1078,10 @@ with tab_dash:
             margin=dict(l=48, r=24, t=54, b=40),
             legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT_COLOR)),
         )
-        fig.update_xaxes(showgrid=False, linecolor=GRID_COLOR, tickcolor=GRID_COLOR)
+        x_kwargs = dict(showgrid=False, linecolor=GRID_COLOR, tickcolor=GRID_COLOR)
+        if n_bars is None or n_bars <= 14:
+            x_kwargs["tickangle"] = 0
+        fig.update_xaxes(**x_kwargs)
         fig.update_yaxes(showgrid=True, gridcolor=GRID_COLOR, linecolor=GRID_COLOR)
         return fig
 
@@ -1088,13 +1091,49 @@ with tab_dash:
 
     with ch1:
         st.markdown('<div class="chart-box">', unsafe_allow_html=True)
-        c1_head, c1_ctrl = st.columns([2, 1])
+        time_scopes = report_data.get("time_scopes", {})
+        detected_years = time_scopes.get("years", [])
+        is_multi_year = time_scopes.get("is_multi_year", False)
+
+        c1_head, c1_drill, c1_ctrl = st.columns([1.6, 1.4, 1.0])
         trend_box_title = insights.get("trend_title") or meta.get("trend_title", "Performance Trajectory")
         with c1_head:
             anom_pill = f'<span style="font-size:10px;font-weight:700;color:#FBBF24;background:rgba(245,158,11,0.15);padding:2px 7px;border-radius:10px;border:1px solid rgba(245,158,11,0.3);margin-left:6px;">⚡ {len(anomalies)} Outlier{"s" if len(anomalies) > 1 else ""}</span>' if anomalies else ""
-            st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{h(trend_box_title)}{anom_pill}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="font-size:13px;font-weight:700;color:#F8FAFC;padding:6px 0;">{h(trend_box_title)}{anom_pill}</div>', unsafe_allow_html=True)
+
+        with c1_drill:
+            d_col1, d_col2 = st.columns(2)
+            with d_col1:
+                if is_multi_year:
+                    year_opts = ["All Years"] + [str(y) for y in detected_years]
+                    sel_year_str = st.selectbox("Year", year_opts, key="drill_year", label_visibility="collapsed")
+                    target_yr = None if sel_year_str == "All Years" else int(sel_year_str)
+                else:
+                    target_yr = detected_years[0] if detected_years else datetime.date.today().year
+                    st.markdown(f'<div style="font-size:11px;font-weight:700;color:#818CF8;background:rgba(99,102,241,0.12);padding:6px 8px;border-radius:6px;border:1px solid rgba(99,102,241,0.25);text-align:center;">{target_yr}</div>', unsafe_allow_html=True)
+            with d_col2:
+                if target_yr is not None or not is_multi_year:
+                    gran_opts = ["Monthly", "Quarterly", "Daily"]
+                else:
+                    gran_opts = ["Yearly", "Quarterly", "Monthly"]
+                sel_gran = st.selectbox("Granularity", gran_opts, key="drill_gran", label_visibility="collapsed")
+
         with c1_ctrl:
-            trend_style = st.selectbox("Style", ["Grouped Bars", "Line & Area", "MoM Growth %"], key="ctrl_trend", label_visibility="collapsed")
+            trend_style = st.selectbox("Style", ["Grouped Bars", "Line & Area", "Growth %"], key="ctrl_trend", label_visibility="collapsed")
+
+        from analysis_engine import compute_adaptive_time_series
+        active_series, active_insights = compute_adaptive_time_series(
+            report_data.get("df", df),
+            target_year=target_yr,
+            granularity=sel_gran,
+            has_profit=has_profit,
+            currency_symbol=curr_sym
+        )
+        report_data["monthly"] = active_series
+        report_data["insights"].update(active_insights)
+        monthly = active_series
+
+        chart1_display_title = active_insights.get("trend_title", trend_box_title)
 
         fig1 = go.Figure()
         if trend_style == "Line & Area":
@@ -1112,12 +1151,9 @@ with tab_dash:
                     line=dict(color="#34D399", width=2.5),
                     marker=dict(size=6, color="#34D399"),
                 ))
-                chart1_title = "Revenue & Profit Trajectory (Line)"
-            else:
-                chart1_title = "Monthly Revenue Trajectory (Line)"
             fig1.update_yaxes(tickprefix=curr_sym, tickformat=",.0f")
-            st.plotly_chart(style_chart(fig1, chart1_title), use_container_width=True)
-        elif trend_style == "MoM Growth %":
+            st.plotly_chart(style_chart(fig1, chart1_display_title, n_bars=len(monthly)), use_container_width=True)
+        elif trend_style == "Growth %":
             growth_colors = ["#34D399" if v >= 0 else "#F87171" for v in monthly["MoM_Growth"].fillna(0)]
             fig1.add_trace(go.Bar(
                 x=monthly["Month_Label"], y=monthly["MoM_Growth"],
@@ -1126,7 +1162,8 @@ with tab_dash:
                 textposition="outside", textfont=dict(color=TEXT_COLOR, size=10),
             ))
             fig1.update_yaxes(ticksuffix="%")
-            st.plotly_chart(style_chart(fig1, "Month-over-Month Velocity (%)"), use_container_width=True)
+            growth_header = f"{active_insights.get('growth_rate_metric', 'Period')} Velocity (%)"
+            st.plotly_chart(style_chart(fig1, growth_header, n_bars=len(monthly)), use_container_width=True)
         else:
             fig1.add_trace(go.Bar(
                 x=monthly["Month_Label"], y=monthly["Revenue"],
@@ -1138,11 +1175,8 @@ with tab_dash:
                     name="Profit", marker_color="#34D399", opacity=0.92
                 ))
                 fig1.update_layout(barmode="group")
-                chart1_title = "Monthly Revenue vs Net Profit"
-            else:
-                chart1_title = "Monthly Revenue Performance"
             fig1.update_yaxes(tickprefix=curr_sym, tickformat=",.0f")
-            st.plotly_chart(style_chart(fig1, chart1_title), use_container_width=True)
+            st.plotly_chart(style_chart(fig1, chart1_display_title, n_bars=len(monthly)), use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     with ch2:
@@ -1439,6 +1473,8 @@ with tab_deck:
     logo_name = logo_file.name if ('logo_file' in locals() and logo_file) else None
     bc_val = brand_color if 'brand_color' in locals() else None
     bn_val = brand_name if 'brand_name' in locals() else None
+    active_drill_year = st.session_state.get("drill_year", "All")
+    active_drill_gran = st.session_state.get("drill_gran", "Monthly")
     pptx_cache_key = (
         data_hash,
         active_trend,
@@ -1446,6 +1482,8 @@ with tab_deck:
         active_region,
         active_metric,
         active_top_n,
+        active_drill_year,
+        active_drill_gran,
         bc_val,
         bn_val,
         logo_name,

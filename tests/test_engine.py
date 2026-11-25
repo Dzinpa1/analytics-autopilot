@@ -244,7 +244,45 @@ class TestAnomalyDetection(unittest.TestCase):
         insights = report["insights"]
         self.assertTrue(insights["has_anomalies"])
         anom_periods = [a["period"] for a in insights["anomalies"]]
-        self.assertTrue(any("Dec" in p for p in anom_periods))
+        self.assertTrue(any("Dec" in p or "Q4" in p for p in anom_periods))
+
+
+# =============================================================================
+# 6. DRILLDOWN & TIME SCOPES TESTS
+# =============================================================================
+class TestDrilldownAndScopes(unittest.TestCase):
+    def test_get_available_time_scopes(self):
+        from analysis_engine import get_available_time_scopes
+        df = pd.DataFrame({
+            "Date": pd.to_datetime(["2024-05-01", "2025-06-01", "2026-07-01"]),
+            "Revenue": [100, 200, 300]
+        })
+        scopes = get_available_time_scopes(df)
+        self.assertEqual(scopes["years"], [2024, 2025, 2026])
+        self.assertTrue(scopes["is_multi_year"])
+        self.assertIn("Yearly", scopes["granularities"])
+
+    def test_single_year_clean_labels(self):
+        # Single-year monthly view should have clean 3-letter months with NO repeated year in labels
+        dates = pd.date_range("2026-01-01", "2026-12-31", freq="MS")
+        df = pd.DataFrame({"Date": dates, "Revenue": [100.0] * 12, "Profit": [30.0] * 12})
+        series, insights = compute_adaptive_time_series(df, target_year=2026, granularity="monthly")
+        
+        # Verify 3-letter labels: Jan, Feb, Mar, etc.
+        self.assertEqual(series["Month_Label"].iloc[0], "Jan")
+        self.assertEqual(series["Month_Label"].iloc[-1], "Dec")
+        self.assertNotIn("2026", series["Month_Label"].iloc[0])
+        # Verify year is lifted into the title
+        self.assertIn("2026", insights["trend_title"])
+
+    def test_single_year_quarterly_clean_labels(self):
+        # Single-year quarterly view should have clean Q1, Q2, Q3, Q4 with NO repeated year in labels
+        dates = pd.date_range("2026-01-01", "2026-12-31", freq="D")
+        df = pd.DataFrame({"Date": dates, "Revenue": [10.0] * len(dates)})
+        series, insights = compute_adaptive_time_series(df, target_year=2026, granularity="quarterly")
+        
+        self.assertEqual(list(series["Month_Label"]), ["Q1", "Q2", "Q3", "Q4"])
+        self.assertIn("2026", insights["trend_title"])
 
 
 if __name__ == "__main__":
