@@ -562,15 +562,37 @@ if not uploaded_file and not use_sample:
 # ─────────────────────────────────────────────────────────────────────────────
 # LOAD & PREPARE DATA
 # ─────────────────────────────────────────────────────────────────────────────
+def load_uploaded_dataset(file, sheet=0) -> pd.DataFrame:
+    """
+    Robust reader for uploaded CSV and Excel files.
+    Handles encoding fallbacks (utf-8-sig -> utf-8 -> cp1252 -> latin1),
+    automatic delimiter sniffing for semicolon/comma/tab, and multi-sheet Excel files.
+    """
+    filename = file.name.lower()
+    if filename.endswith(".csv"):
+        encodings = ["utf-8-sig", "utf-8", "cp1252", "latin1"]
+        for enc in encodings:
+            try:
+                file.seek(0)
+                return pd.read_csv(file, sep=None, engine="python", encoding=enc)
+            except Exception:
+                continue
+        file.seek(0)
+        return pd.read_csv(file, encoding="latin1")
+    else:
+        file.seek(0)
+        return pd.read_excel(file, sheet_name=sheet)
+
 with st.spinner("Processing data engine..."):
     if use_sample or uploaded_file is None:
         from generate_data import generate_sales_data
         df = generate_sales_data()
     else:
-        if uploaded_file.name.endswith(".csv"):
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
+        try:
+            df = load_uploaded_dataset(uploaded_file, sheet=selected_sheet)
+        except Exception as e:
+            st.error(f"⚠️ **Could not read file:** {str(e)}\n\nPlease ensure your file is a valid CSV or Excel spreadsheet.")
+            st.stop()
 
 cols = df.columns.tolist()
 def fcol(candidates):

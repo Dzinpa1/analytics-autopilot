@@ -51,7 +51,7 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
 #### Milestone 1: Critical Bugs & File Handling (Data Integrity)
 - [x] **Fix Stale Data Cache (`app.py`):** Pass a hash of the DataFrame/file bytes as a normal argument to `get_cached_report()` (since `_df` with a leading underscore is ignored by Streamlit's cache), so uploading a second file with identical column names always recomputes fresh metrics.
 - [x] **Fix `NameError` Guard (`app.py`):** Define `anomalies = insights.get("anomalies", [])` above `if narrative.get("executive_summary"):` so missing JSON keys never crash the chart header.
-- [ ] **Harden File Ingestion (`app.py` & `requirements.txt`):** Add `xlrd>=2.0.1` to `requirements.txt` for `.xls` files, and add UTF-8 -> `cp1252`/`latin1` encoding fallback + delimiter sniffing (`sep=None, engine="python"`) for CSVs containing `₵` or `£`.
+- [x] **Harden File Ingestion (`app.py` & `requirements.txt`):** Add `xlrd>=2.0.1` to `requirements.txt` for `.xls` files, and add UTF-8 -> `cp1252`/`latin1` encoding fallback + delimiter sniffing (`sep=None, engine="python"`) for CSVs containing `₵` or `£`.
 - [ ] **Harden Number & Date Sanitization (`analysis_engine.py`):** Handle accounting negatives like `(500)` -> `-500`, European decimals (`1.234,56`), and `K`/`M` suffixes safely; flag/report actual imputed/dropped rows honestly in `hygiene` instead of hardcoding `"100% retention"` and `"Certified Clean"` when rows were altered.
 
 #### Milestone 2: True Per-Mode Math & Honest Narratives
