@@ -758,14 +758,15 @@ def fmt(v):
 profit_display = fmt(total_profit) if has_profit and total_profit is not None else "Not Available"
 profit_pill    = meta.get("profit_sub", "After All Costs") if has_profit and total_profit is not None else "Allocation Mode"
 
-if has_profit and profit_margin is not None:
-    margin_display = f"{profit_margin:.1f}%"
-    margin_pill    = "Target: >35.0%" if profit_margin >= 35.0 else "Below 35% Target"
-    margin_pill_class = "pill-purple" if profit_margin >= 35.0 else "pill-amber"
-else:
-    margin_display = "N/A"
-    margin_pill    = "Margin Unmapped"
-    margin_pill_class = "pill-blue"
+# True mode-specific efficiency metric display (Margin % / ROAS / Budget Utilization)
+margin_display = kpis.get("efficiency_display") or (f"{profit_margin:.1f}%" if profit_margin is not None else "N/A")
+margin_pill    = kpis.get("efficiency_status") or ("Target: >35.0%" if (profit_margin or 0) >= 35.0 else "Below 35% Target")
+margin_pill_class = kpis.get("efficiency_pill_class") or ("pill-purple" if (profit_margin or 0) >= 35.0 else "pill-amber")
+
+# True CMGR with dynamic directional arrow
+growth_label = insights.get("growth_label") or (f"↑ {mom_avg:.1f}% Avg MoM" if mom_avg >= 0 else f"↓ {mom_avg:.1f}% Avg MoM")
+growth_arrow = insights.get("growth_arrow", "↑" if mom_avg >= 0 else "↓")
+growth_pill_class = "pill-blue" if growth_arrow == "↑" else "pill-amber"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AI NARRATIVE GENERATION (Cached in st.session_state)
@@ -781,7 +782,7 @@ if "narrative_cache" not in st.session_state:
 if cache_key not in st.session_state.narrative_cache:
     with st.spinner(f"🧠 Synthesizing executive narrative ({report_mode})..."):
         st.session_state.narrative_cache[cache_key] = generate_narrative(
-            report_data, report_title=report_title, report_mode=report_mode, api_key=active_api_key
+            report_data, report_title=report_title, report_mode=report_mode, api_key=active_api_key, currency_symbol=curr_sym
         )
 
 narrative     = st.session_state.narrative_cache[cache_key]
@@ -843,7 +844,7 @@ with tab_dash:
         <div class="kpi-card">
             <div class="kpi-label">{kpi_rev_lbl}</div>
             <div class="kpi-value">{fmt(total_revenue)}</div>
-            <div class="kpi-pill pill-blue">↑ {mom_avg:.1f}% Avg MoM</div>
+            <div class="kpi-pill {growth_pill_class}">{growth_label}</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">{kpi_profit_lbl}</div>

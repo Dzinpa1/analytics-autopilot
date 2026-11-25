@@ -132,33 +132,131 @@ def load_and_validate(filepath: str) -> pd.DataFrame:
     return df
 
 
-def compute_kpis(df: pd.DataFrame, has_profit: bool = True) -> dict:
-    total_revenue  = df["Revenue"].sum()
-    total_orders   = len(df)
-    total_units    = df["Quantity"].sum() if "Quantity" in df.columns else total_orders
-    avg_order_val  = (total_revenue / total_orders) if total_orders else 0.0
-    return_rate    = (df["Returned"].sum() / total_orders) * 100 if "Returned" in df.columns else 0.0
+def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "Sales & Retail Performance") -> dict:
+    mode = report_mode or "Sales & Retail Performance"
+    total_orders = len(df)
+    total_units = int(df["Quantity"].sum()) if "Quantity" in df.columns else total_orders
+    return_rate = round((df["Returned"].sum() / total_orders * 100), 2) if "Returned" in df.columns and total_orders else 0.0
 
-    if has_profit and "Profit" in df.columns:
-        total_profit  = df["Profit"].sum()
-        total_cost    = df["Cost"].sum() if "Cost" in df.columns else 0.0
-        profit_margin = (total_profit / total_revenue * 100) if total_revenue else 0.0
+    if "Marketing" in mode:
+        # Marketing & Ad Spend: ROAS & CPA
+        total_spend = float(df["Revenue"].sum())
+        total_return = float(df["Profit"].sum()) if has_profit and "Profit" in df.columns else None
+        conversions = total_orders
+        cpa = round((total_spend / conversions), 2) if conversions > 0 else 0.0
+
+        if total_return is not None and total_spend > 0:
+            roas = round((total_return / total_spend), 2)
+            profit_margin = roas
+            eff_name = "ROAS"
+            eff_display = f"{roas:.2f}x"
+            eff_status = "Target: >2.0x" if roas >= 2.0 else "Below 2.0x Target"
+            eff_class = "pill-purple" if roas >= 2.0 else "pill-amber"
+        elif total_spend > 0:
+            conv_rate = round((conversions / total_spend * 100), 2)
+            profit_margin = conv_rate
+            eff_name = "Conv. Efficiency"
+            eff_display = f"{conv_rate:.2f}%"
+            eff_status = "Target: >3.0%" if conv_rate >= 3.0 else "Below 3.0% Target"
+            eff_class = "pill-purple" if conv_rate >= 3.0 else "pill-amber"
+        else:
+            profit_margin = None
+            eff_name = "ROAS"
+            eff_display = "N/A"
+            eff_status = "Spend Unmapped"
+            eff_class = "pill-blue"
+
+        return {
+            "total_revenue": round(total_spend, 2),
+            "total_profit": round(total_return, 2) if total_return is not None else None,
+            "total_cost": round(total_spend, 2),
+            "total_orders": conversions,
+            "total_units": total_units,
+            "avg_order_value": cpa,
+            "profit_margin": profit_margin,
+            "return_rate": return_rate,
+            "has_profit": has_profit,
+            "efficiency_metric_name": eff_name,
+            "efficiency_display": eff_display,
+            "efficiency_status": eff_status,
+            "efficiency_pill_class": eff_class,
+            "roas": profit_margin,
+            "cpa": cpa,
+        }
+
+    elif "Operations" in mode:
+        # Operations & Logistics: Variance & Budget Utilization %
+        op_budget = float(df["Revenue"].sum())
+        actual_expenses = float(df["Cost"].sum()) if "Cost" in df.columns and (df["Cost"].sum() > 0 or has_profit) else (float(df["Profit"].sum()) if has_profit and "Profit" in df.columns else 0.0)
+        variance = round(op_budget - actual_expenses, 2)
+        utilization_pct = round((actual_expenses / op_budget * 100), 1) if op_budget > 0 else 0.0
+        cost_per_order = round((actual_expenses / total_orders), 2) if total_orders > 0 else 0.0
+
+        eff_name = "Budget Utilization"
+        eff_display = f"{utilization_pct:.1f}%"
+        if utilization_pct <= 95.0:
+            eff_status = f"On Budget (Under by {abs(variance):,.0f})"
+            eff_class = "pill-green"
+        elif utilization_pct <= 100.0:
+            eff_status = "Fully Allocated (<=100%)"
+            eff_class = "pill-green"
+        else:
+            eff_status = f"Over Budget (+{utilization_pct - 100.0:.1f}%)"
+            eff_class = "pill-amber"
+
+        return {
+            "total_revenue": round(op_budget, 2),
+            "total_profit": round(actual_expenses, 2),
+            "total_cost": round(actual_expenses, 2),
+            "total_orders": total_orders,
+            "total_units": total_units,
+            "avg_order_value": cost_per_order,
+            "profit_margin": utilization_pct,
+            "return_rate": return_rate,
+            "has_profit": has_profit,
+            "efficiency_metric_name": eff_name,
+            "efficiency_display": eff_display,
+            "efficiency_status": eff_status,
+            "efficiency_pill_class": eff_class,
+            "budget_variance": variance,
+            "budget_utilization": utilization_pct,
+        }
+
     else:
-        total_profit  = None
-        total_cost    = None
-        profit_margin = None
+        # Sales & Retail Performance
+        total_revenue = float(df["Revenue"].sum())
+        avg_order_val = round((total_revenue / total_orders), 2) if total_orders else 0.0
 
-    return {
-        "total_revenue":  round(total_revenue, 2),
-        "total_profit":   round(total_profit, 2) if total_profit is not None else None,
-        "total_cost":     round(total_cost, 2) if total_cost is not None else None,
-        "total_orders":   total_orders,
-        "total_units":    int(total_units),
-        "avg_order_value": round(avg_order_val, 2),
-        "profit_margin":  round(profit_margin, 2) if profit_margin is not None else None,
-        "return_rate":    round(return_rate, 2),
-        "has_profit":     has_profit,
-    }
+        if has_profit and "Profit" in df.columns:
+            total_profit = float(df["Profit"].sum())
+            total_cost = float(df["Cost"].sum()) if "Cost" in df.columns else 0.0
+            profit_margin = round((total_profit / total_revenue * 100), 2) if total_revenue else 0.0
+            eff_display = f"{profit_margin:.1f}%"
+            eff_status = "Target: >35.0%" if profit_margin >= 35.0 else "Below 35% Target"
+            eff_class = "pill-purple" if profit_margin >= 35.0 else "pill-amber"
+        else:
+            total_profit = None
+            total_cost = None
+            profit_margin = None
+            eff_display = "N/A"
+            eff_status = "Margin Unmapped"
+            eff_class = "pill-blue"
+
+        return {
+            "total_revenue": round(total_revenue, 2),
+            "total_profit": round(total_profit, 2) if total_profit is not None else None,
+            "total_cost": round(total_cost, 2) if total_cost is not None else None,
+            "total_orders": total_orders,
+            "total_units": total_units,
+            "avg_order_value": avg_order_val,
+            "profit_margin": profit_margin,
+            "return_rate": return_rate,
+            "has_profit": has_profit,
+            "efficiency_metric_name": "Profit Margin",
+            "efficiency_display": eff_display,
+            "efficiency_status": eff_status,
+            "efficiency_pill_class": eff_class,
+        }
 
 
 def monthly_trend(df: pd.DataFrame, has_profit: bool = True) -> pd.DataFrame:
@@ -171,48 +269,77 @@ def monthly_trend(df: pd.DataFrame, has_profit: bool = True) -> pd.DataFrame:
     if not has_profit or "Profit" not in monthly.columns:
         monthly["Profit"] = 0.0
 
+    # Continuous monthly reindexing: Ensure every intermediate month exists
+    if not monthly.empty:
+        full_idx = pd.period_range(start=monthly["Month"].min(), end=monthly["Month"].max(), freq="M")
+        monthly = monthly.set_index("Month").reindex(full_idx, fill_value=0.0).reset_index()
+        monthly.rename(columns={"index": "Month"}, inplace=True)
+        if "Orders" in monthly.columns:
+            monthly["Orders"] = monthly["Orders"].fillna(0).astype(int)
+
     monthly["Month_Label"] = monthly["Month"].dt.strftime("%b %Y")
     monthly["MoM_Growth"]  = monthly["Revenue"].pct_change() * 100
+
+    # Partial first/last month detection
+    min_date = df["Date"].min()
+    max_date = df["Date"].max()
+    monthly["Is_Partial"] = False
+    if not monthly.empty and pd.notna(min_date) and pd.notna(max_date):
+        if min_date.day > 10:
+            monthly.loc[monthly.index[0], "Is_Partial"] = True
+        days_in_last = pd.Period(max_date, freq="D").days_in_month
+        if max_date.day < (days_in_last - 5):
+            monthly.loc[monthly.index[-1], "Is_Partial"] = True
+
     return monthly
 
 
-def detect_time_series_anomalies(monthly: pd.DataFrame, z_threshold: float = 1.5, mom_threshold: float = 35.0, currency_symbol: str = "$") -> list:
+def detect_time_series_anomalies(monthly: pd.DataFrame, z_threshold: float = 2.0, mom_threshold: float = 40.0, currency_symbol: str = "$") -> list:
     """
-    Statistical anomaly detection on time-series monthly revenue.
-    Identifies significant surges and contractions using Z-score and MoM acceleration.
-    Returns a sorted list of anomaly records (greatest deviation first).
+    Robust statistical anomaly detection on time-series monthly revenue using Median
+    and Median Absolute Deviation (MAD) to prevent normal fluctuations from triggering alerts.
+    Identifies significant surges and contractions with partial-month awareness.
     """
     if monthly is None or len(monthly) < 3 or "Revenue" not in monthly.columns:
         return []
 
-    rev_mean = monthly["Revenue"].mean()
-    rev_std  = monthly["Revenue"].std()
+    rev = monthly["Revenue"]
+    rev_median = float(rev.median())
+    abs_diffs = (rev - rev_median).abs()
+    mad = float(abs_diffs.median())
 
-    if rev_std == 0 or pd.isna(rev_std):
+    # Normalization factor for MAD to approximate standard deviation
+    norm_factor = 1.4826 if mad > 0 else 1.0
+    scale = mad * norm_factor if mad > 0 else float(rev.std())
+
+    if scale == 0 or pd.isna(scale):
         return []
 
     anomalies = []
     for _, row in monthly.iterrows():
-        rev = row["Revenue"]
-        z = (rev - rev_mean) / rev_std
-        mom = row["MoM_Growth"] if "MoM_Growth" in row and not pd.isna(row["MoM_Growth"]) else 0.0
-        pct_diff = ((rev - rev_mean) / rev_mean * 100) if rev_mean != 0 else 0.0
+        r_val = float(row["Revenue"])
+        z_robust = (r_val - rev_median) / scale
+        mom = float(row["MoM_Growth"]) if "MoM_Growth" in row and pd.notna(row["MoM_Growth"]) else 0.0
+        pct_diff = ((r_val - rev_median) / rev_median * 100.0) if rev_median != 0 else 0.0
+        is_partial = bool(row.get("Is_Partial", False))
 
-        is_spike = (z >= z_threshold) or (mom >= mom_threshold and z >= 1.0)
-        is_drop  = (z <= -z_threshold) or (mom <= -mom_threshold and z <= -1.0)
+        is_spike = (z_robust >= z_threshold) or (mom >= mom_threshold and z_robust >= 1.5)
+        is_drop  = (z_robust <= -z_threshold) or (mom <= -mom_threshold and z_robust <= -1.5)
 
         if is_spike or is_drop:
             anom_type = "Surge" if is_spike else "Contraction"
+            partial_note = " (Partial month)" if is_partial else ""
             anomalies.append({
                 "period": str(row.get("Month_Label", str(row.get("Month", "Unknown")))),
                 "type": anom_type,
                 "metric": "Revenue",
-                "value": round(float(rev), 2),
-                "z_score": round(float(z), 2),
+                "value": round(r_val, 2),
+                "z_score": round(float(z_robust), 2),
                 "pct_diff_mean": round(float(pct_diff), 1),
                 "mom_growth": round(float(mom), 1),
-                "severity": "High" if abs(z) >= 2.0 else "Moderate",
-                "summary": f"{row.get('Month_Label', 'Month')}: {anom_type} of {currency_symbol}{float(rev):,.0f} ({z:+.2f}σ, {pct_diff:+.1f}% vs. mean)",
+                "is_partial": is_partial,
+                "severity": "High" if abs(z_robust) >= 3.0 else "Moderate",
+                "summary": f"{row.get('Month_Label', 'Month')}: {anom_type} of {currency_symbol}{r_val:,.0f} ({z_robust:+.2f}σ vs. median, {pct_diff:+.1f}%){partial_note}",
             })
 
     return sorted(anomalies, key=lambda a: abs(a["z_score"]), reverse=True)
@@ -338,8 +465,8 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     nulls_imputed_total = 0
     audit_trail = []
 
-    has_mapped_profit = False
-    has_mapped_cost   = False
+    has_mapped_profit = ("Profit" in df.columns) if not mapping else False
+    has_mapped_cost   = ("Cost" in df.columns) if not mapping else False
 
     if mapping:
         target_name_map = {
@@ -488,30 +615,50 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     if "Product" not in clean_df.columns:
         clean_df["Product"] = clean_df["Category"]
 
-    kpis     = compute_kpis(clean_df, has_profit=has_profit)
+    kpis     = compute_kpis(clean_df, has_profit=has_profit, report_mode=report_mode)
     monthly  = monthly_trend(clean_df, has_profit=has_profit)
     category = category_breakdown(clean_df, has_profit=has_profit)
     region   = region_breakdown(clean_df)
     products = top_products(clean_df, n=10)
-    channels = channel_breakdown(clean_df) if "Channel" in clean_df.columns else pd.DataFrame({
+
+    has_channel = ("Channel" in clean_df.columns) and (clean_df["Channel"].nunique() > 1 or clean_df["Channel"].iloc[0] != "Direct")
+    channels = channel_breakdown(clean_df) if has_channel else pd.DataFrame({
         "Channel": ["Direct"], "Revenue": [kpis["total_revenue"]], "Orders": [kpis["total_orders"]], "Revenue_%": [100.0]
     })
 
     best_month  = monthly.loc[monthly["Revenue"].idxmax(), "Month_Label"] if not monthly.empty else "N/A"
     worst_month = monthly.loc[monthly["Revenue"].idxmin(), "Month_Label"] if not monthly.empty else "N/A"
-    avg_mom_growth = monthly["MoM_Growth"].mean() if not monthly.empty else 0.0
+    avg_mom_growth = monthly["MoM_Growth"].dropna().mean() if not monthly.empty else 0.0
 
-    top_cat    = category.iloc[0]["Category"] if not category.empty else "General"
-    top_region = region.iloc[0]["Region"] if not region.empty else "Global"
-    top_channel = channels.iloc[0]["Channel"] if not channels.empty else "Direct"
+    # CMGR (Compound Monthly Growth Rate) computation
+    n_months = len(monthly)
+    if n_months >= 2:
+        rev_start = float(monthly.iloc[0]["Revenue"])
+        rev_end = float(monthly.iloc[-1]["Revenue"])
+        if rev_start > 0 and rev_end > 0:
+            cmgr = ((rev_end / rev_start) ** (1.0 / (n_months - 1)) - 1.0) * 100.0
+        else:
+            cmgr = float(monthly["MoM_Growth"].dropna().median()) if "MoM_Growth" in monthly and not monthly["MoM_Growth"].dropna().empty else 0.0
+    else:
+        cmgr = 0.0
+
+    growth_arrow = "↑" if cmgr >= 0 else "↓"
+    growth_sign = "+" if cmgr >= 0 else ""
+    growth_label = f"{growth_arrow} {growth_sign}{cmgr:.1f}% CMGR"
+
+    partial_months = monthly[monthly["Is_Partial"]]["Month_Label"].tolist() if "Is_Partial" in monthly else []
+
+    top_cat     = category.iloc[0]["Category"] if not category.empty else "General"
+    top_region  = region.iloc[0]["Region"] if not region.empty else "Global"
+    top_channel = channels.iloc[0]["Channel"] if has_channel and not channels.empty else None
 
     anomalies = detect_time_series_anomalies(monthly, currency_symbol=currency_symbol)
     has_anomalies = len(anomalies) > 0
     if has_anomalies:
         top_anom = anomalies[0]
-        anomaly_headline = f"{top_anom['period']} experienced a statistical {top_anom['type'].lower()} ({top_anom['z_score']:+.2f}σ, {top_anom['pct_diff_mean']:+.1f}% vs. mean)."
+        anomaly_headline = f"{top_anom['period']} experienced a statistical {top_anom['type'].lower()} ({top_anom['z_score']:+.2f}σ vs. median, {top_anom['pct_diff_mean']:+.1f}%)."
     else:
-        anomaly_headline = "Trajectory remained within expected ±1.5σ historical bounds with no abnormal volatility."
+        anomaly_headline = "Trajectory remained within expected historical bounds with no abnormal volatility."
 
     meta_dict = get_mode_kpi_labels(report_mode)
     meta_dict["currency_symbol"] = currency_symbol
@@ -530,9 +677,14 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
             "best_month":        best_month,
             "worst_month":       worst_month,
             "avg_mom_growth":    round(avg_mom_growth, 2) if not pd.isna(avg_mom_growth) else 0.0,
+            "cmgr":              round(cmgr, 2),
+            "growth_arrow":      growth_arrow,
+            "growth_label":      growth_label,
+            "partial_months":    partial_months,
             "top_category":      top_cat,
             "top_region":        top_region,
             "top_channel":       top_channel,
+            "has_channel":       has_channel,
             "anomalies":         anomalies,
             "has_anomalies":     has_anomalies,
             "anomaly_headline":  anomaly_headline,

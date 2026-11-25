@@ -132,7 +132,7 @@ def slide_kpis(prs, kpis, insights, meta: dict = None, note: str = None, accent_
 
     # Row 1 — 4 KPI cards
     profit_display = f"{sym}{kpis['total_profit']:,.0f}" if kpis.get("total_profit") is not None else "N/A"
-    margin_display = f"{kpis['profit_margin']}%" if kpis.get("profit_margin") is not None else "N/A"
+    margin_display = kpis.get("efficiency_display") or (f"{kpis['profit_margin']}%" if kpis.get("profit_margin") is not None else "N/A")
 
     primary_kpi_color = accent_color if accent_color else C_BLUE
     cards_r1 = [

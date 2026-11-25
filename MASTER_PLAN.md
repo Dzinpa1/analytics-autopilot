@@ -55,12 +55,12 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
 - [x] **Harden Number & Date Sanitization (`analysis_engine.py`):** Handle accounting negatives like `(500)` -> `-500`, European decimals (`1.234,56`), and `K`/`M` suffixes safely; flag/report actual imputed/dropped rows honestly in `hygiene` instead of hardcoding `"100% retention"` and `"Certified Clean"` when rows were altered.
 
 #### Milestone 2: True Per-Mode Math & Honest Narratives
-- [ ] **True Mode-Specific Metrics (`analysis_engine.py`):** Stop simply relabeling Sales math:
+- [x] **True Mode-Specific Metrics (`analysis_engine.py`):** Stop simply relabeling Sales math:
   - *Sales:* Margin % = `Profit / Revenue * 100`, AOV = `Revenue / Orders`
   - *Marketing:* ROAS = `Return / Spend` (or `Conversions / Spend * 100` if return is unmapped), CPA = `Spend / Conversions`
   - *Operations:* Variance = `Actual - Budget`, Budget Utilization % = `Actual / Budget * 100` (with green/amber/red status pills where `<= 100%` is on-budget and `> 100%` is over-budget).
-- [ ] **Honest Time-Series & Anomalies (`analysis_engine.py`):** Fix the hardcoded upward arrow (`↑`) when `avg_mom_growth` is negative; ensure "Dominant channel" only shows when a Channel column actually exists; soften anomaly wording so normal 1.5σ fluctuations aren't overclaimed.
-- [ ] **Dynamic Currency & Grounded Claims in AI (`ai_narrator.py`):** Pass `currency_symbol` into `generate_narrative()` and `get_deterministic_fallback()` instead of hardcoding `$`, and remove unsupported claims (like "high organic repeat rates" or "ramp up 45 days prior") unless backed by actual data.
+- [x] **Honest Time-Series & Anomalies (`analysis_engine.py`):** Fix the hardcoded upward arrow (`↑`) when `avg_mom_growth` is negative; ensure "Dominant channel" only shows when a Channel column actually exists; soften anomaly wording so normal 1.5σ fluctuations aren't overclaimed.
+- [x] **Dynamic Currency & Grounded Claims in AI (`ai_narrator.py`):** Pass `currency_symbol` into `generate_narrative()` and `get_deterministic_fallback()` instead of hardcoding `$`, and remove unsupported claims (like "high organic repeat rates" or "ramp up 45 days prior") unless backed by actual data.
 
 #### Milestone 3: PowerPoint Deck & UI Polish
 - [ ] **Fix Stretched Charts in `.pptx` (`slide_builder.py`):** Pass ONLY `width` (or ONLY `height`) to `slide.shapes.add_picture()`—or render charts at matching slot aspect ratios—so donuts stay round circles instead of stretched ovals.

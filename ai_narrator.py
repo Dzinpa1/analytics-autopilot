@@ -9,14 +9,44 @@ Architecture Principles:
 2. Crash-Proof Fallback: Returns structured deterministic template narratives if
    no API key is provided or if network/API calls fail.
 3. Clean Token Budget: Feeds compact summary JSON (~250 tokens), avoiding raw row data leaks.
+4. Structured Outputs: Uses Pydantic schema validation for guaranteed response shapes.
 """
 
 import os
 import json
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 # Load local environment variables from .env if present
 load_dotenv()
+
+
+class TakeawayItem(BaseModel):
+    icon: str = Field(description="A single relevant emoji, e.g. 🎯, 📈, ⚡, 📍")
+    title: str = Field(description="3-5 word executive takeaway title")
+    body: str = Field(description="1-2 concise, high-impact data-backed analytical sentences")
+
+
+class RecommendationItem(BaseModel):
+    tag: str = Field(description="Formatted priority category, e.g. '1. Regional Scale'")
+    title: str = Field(description="Concise action-oriented strategic initiative title")
+    body: str = Field(description="Specific actionable commercial instruction (1-2 sentences)")
+    accent: str = Field(description="Hex color from #6366F1, #34D399, #F87171, #FBBF24")
+
+
+class SpeakerNotes(BaseModel):
+    slide_1: str = Field(description="Warm boardroom welcome and executive agenda")
+    slide_2: str = Field(description="Commentary on bottom-line figures and efficiency")
+    slide_3: str = Field(description="Seasonal momentum, peak window, and trough hedging")
+    slide_4: str = Field(description="Category and channel contribution analysis")
+    slide_5: str = Field(description="Four strategic executive action items")
+
+
+class ExecutiveNarrativeSchema(BaseModel):
+    executive_summary: str = Field(description="2-3 sentence strategic executive briefing grounded in verified numbers")
+    takeaways: list[TakeawayItem] = Field(description="Exactly 3 key takeaways")
+    recommendations: list[RecommendationItem] = Field(description="Exactly 4 strategic recommendations")
+    speaker_notes: SpeakerNotes = Field(description="Presenter scripts for slides 1 to 5")
 
 
 def get_gemini_api_key() -> str | None:
@@ -39,88 +69,99 @@ def get_gemini_api_key() -> str | None:
     return None
 
 
-def get_deterministic_fallback(report_data: dict, report_title: str = "Executive Report", report_mode: str = None) -> dict:
+def get_deterministic_fallback(
+    report_data: dict,
+    report_title: str = "Executive Report",
+    report_mode: str = None,
+    currency_symbol: str = "$"
+) -> dict:
     """
     Deterministic template fallback when Gemini API key is missing or calls fail.
-    Dynamically adapts boardroom narrative tone to the selected Report Mode.
+    Dynamically adapts boardroom narrative tone to the selected Report Mode and currency.
     """
     kpis = report_data.get("kpis", {})
     ins = report_data.get("insights", {})
     mode = report_mode or report_data.get("report_mode", "Sales & Retail Performance")
+    curr = currency_symbol or report_data.get("meta", {}).get("currency_symbol", "$")
 
     total_revenue = kpis.get("total_revenue", 0.0)
     profit_margin = kpis.get("profit_margin")
     avg_order_val = kpis.get("avg_order_value", 0.0)
     total_orders = kpis.get("total_orders", 0)
-    best_month = ins.get("best_month", "Q4 Peak")
-    worst_month = ins.get("worst_month", "Off-Peak")
-    top_cat = ins.get("top_category", "Core Offerings")
+    best_month = ins.get("best_month", "Peak Period")
+    worst_month = ins.get("worst_month", "Off-Peak Period")
+    top_cat = ins.get("top_category", "Core Vertical")
     top_region = ins.get("top_region", "Primary Market")
 
     anom_list = ins.get("anomalies", [])
-    anom_phrase = f" Notably, {anom_list[0]['period']} experienced an abnormal {anom_list[0]['type'].lower()} ({anom_list[0]['pct_diff_mean']:+.1f}% vs. mean)." if anom_list else ""
+    anom_phrase = f" Notably, {anom_list[0]['period']} recorded an abnormal {anom_list[0]['type'].lower()} ({anom_list[0]['pct_diff_mean']:+.1f}% vs. baseline)." if anom_list else ""
 
-    margin_str = f"{profit_margin:.1f}%" if profit_margin is not None else "healthy"
-    rev_str = f"${total_revenue:,.0f}" if total_revenue else "$0"
-    aov_str = f"${avg_order_val:,.2f}" if avg_order_val else "$0"
+    rev_str = f"{curr}{total_revenue:,.0f}" if total_revenue else f"{curr}0"
+    aov_str = f"{curr}{avg_order_val:,.2f}" if avg_order_val else f"{curr}0"
+
+    eff_display = kpis.get("efficiency_display")
+    if not eff_display:
+        margin_str = f"{profit_margin:.1f}%" if profit_margin is not None else "healthy"
+    else:
+        margin_str = eff_display
 
     if "Marketing" in mode:
         return {
             "status": "fallback",
             "report_mode": mode,
             "executive_summary": (
-                f"During this campaign cycle, total ad spend reached {rev_str} across {total_orders:,} verified conversions. "
-                f"Acquisition velocity was driven by {top_cat}, while {top_region} demonstrated the strongest regional ROAS profile.{anom_phrase}"
+                f"During this campaign cycle, total ad spend reached {rev_str} delivering {total_orders:,} verified conversions. "
+                f"Portfolio velocity was led by {top_cat}, while {top_region} demonstrated the primary regional response profile.{anom_phrase}"
             ),
             "takeaways": [
                 {
                     "icon": "🎯",
                     "title": "Peak Conversion Window",
-                    "body": f"{best_month} generated the highest conversion velocity and lowest CPA. Structure future media flights around this window."
+                    "body": f"{best_month} generated the highest conversion velocity. Schedule primary campaign flights around this high-response window."
                 },
                 {
                     "icon": "🚀",
                     "title": "Top-Performing Channel",
-                    "body": f"{top_cat} yields the strongest conversion efficiency. Prioritize budget allocation and creative testing in this channel."
+                    "body": f"{top_cat} yields our highest conversion volume. Focus creative optimization and core budget allocation in this vertical."
                 },
                 {
                     "icon": "📍",
-                    "title": "High-ROAS Geography",
-                    "body": f"{top_region} delivers the lowest cost per acquisition. Deploy localized creative messaging and retargeting pools here."
+                    "title": "Primary Geography",
+                    "body": f"{top_region} commands the largest share of conversions. Deploy localized creative messaging and retargeting pools here."
                 }
             ],
             "recommendations": [
                 {
                     "tag": "1. Scale Top Funnel",
                     "title": f"Expand Media Spend in {top_region}",
-                    "body": f"Increase budget allocation in {top_region} to capture compounding conversion demand at favorable acquisition costs.",
+                    "body": f"Increase budget allocation in {top_region} to capture compounding conversion demand at disciplined acquisition costs.",
                     "accent": "#6366F1"
                 },
                 {
                     "tag": "2. CAC Optimization",
-                    "title": "Refine Bid & Audience Thresholds",
-                    "body": f"Maintain disciplined bid caps to safeguard our {margin_str} conversion return tier across primary ad networks.",
+                    "title": "Refine Audience Thresholds",
+                    "body": f"Maintain disciplined bid caps to safeguard our {margin_str} acquisition efficiency benchmark across channels.",
                     "accent": "#34D399"
                 },
                 {
                     "tag": "3. Off-Peak Pacing",
-                    "title": f"Counteract {worst_month} Dip",
-                    "body": f"Deploy promotional lead-magnet campaigns and retargeting funnels to sustain volume during the {worst_month} slowdown.",
+                    "title": f"Mitigate {worst_month} Contraction",
+                    "body": f"Deploy targeted promotional incentives and lead-nurturing funnels to sustain volume during the {worst_month} slowdown.",
                     "accent": "#F87171"
                 },
                 {
                     "tag": "4. Conversion Lift",
-                    "title": "Optimize Funnel Benchmark",
-                    "body": f"A/B test landing page value propositions to compress average acquisition cost below current benchmark ({aov_str}).",
+                    "title": "Optimize Funnel Unit Economics",
+                    "body": f"A/B test landing page value propositions to improve cost efficiency relative to current benchmark ({aov_str}).",
                     "accent": "#FBBF24"
                 }
             ],
             "speaker_notes": {
-                "slide_1": f"Welcome everyone. Today we are presenting our marketing performance and campaign ROI review for {report_title}. We will cover overall ad spend, channel conversion efficiency, geographic ROAS, and our scaling roadmap.",
-                "slide_2": f"On slide 2, total ad spend closed at {rev_str} delivering {total_orders:,} total conversions with an average cost per unit of {aov_str}. Return margins held at {margin_str}, indicating sustainable acquisition unit economics.",
-                "slide_3": f"Looking at monthly pacing on slide 3: {best_month} delivered our highest conversion efficiency. Conversely, {worst_month} represents a seasonal lull where we must deploy strategic retargeting to smooth pacing.",
-                "slide_4": f"Slide 4 highlights that {top_cat} is our primary growth driver. We recommend concentrating our creative budget here while refining bids in smaller test channels.",
-                "slide_5": f"Finally, slide 5 gives four growth priorities: First, scale spend in {top_region}; second, preserve target CAC margins; third, launch bridge campaigns for {worst_month}; and fourth, test new creatives to drive down acquisition costs."
+                "slide_1": f"Welcome everyone. Today we are presenting our marketing performance review for {report_title}. We will cover overall ad spend, channel conversion efficiency, geographic response, and our scaling roadmap.",
+                "slide_2": f"On slide 2, total ad spend closed at {rev_str} delivering {total_orders:,} total conversions with an average unit cost of {aov_str}. Return efficiency registered at {margin_str}.",
+                "slide_3": f"Looking at monthly pacing on slide 3: {best_month} delivered our highest conversion efficiency. Conversely, {worst_month} represents our seasonal trough where we should deploy counter-cyclical creative testing.",
+                "slide_4": f"Slide 4 highlights that {top_cat} is our primary volume driver. We recommend concentrating our creative budget here while reviewing lower-performing segments.",
+                "slide_5": f"Finally, slide 5 gives four growth priorities: First, scale spend in {top_region}; second, preserve target efficiency benchmarks; third, launch bridging campaigns for {worst_month}; and fourth, optimize funnels to lower acquisition costs."
             }
         }
     elif "Operations" in mode:
@@ -135,12 +176,12 @@ def get_deterministic_fallback(report_data: dict, report_title: str = "Executive
                 {
                     "icon": "⚡",
                     "title": "Peak Throughput Cycle",
-                    "body": f"{best_month} recorded peak operational throughput. Schedule preventive maintenance and staffing ramp-ups ahead of this cycle."
+                    "body": f"{best_month} recorded peak operational throughput. Schedule preventive maintenance and staffing capacity ahead of this cycle."
                 },
                 {
                     "icon": "⚙️",
-                    "title": "Primary Cost Driver",
-                    "body": f"{top_cat} accounts for the largest departmental expenditure. Institute workflow audits and vendor negotiations in this vertical."
+                    "title": "Primary Department",
+                    "body": f"{top_cat} accounts for the largest resource expenditure. Institute workflow reviews and process standardization in this vertical."
                 },
                 {
                     "icon": "🏢",
@@ -152,13 +193,13 @@ def get_deterministic_fallback(report_data: dict, report_title: str = "Executive
                 {
                     "tag": "1. Workflow Automation",
                     "title": f"Modernize Operations in {top_region}",
-                    "body": f"Implement automated ticketing and inventory tracking across {top_region} to absorb volume without head-count spikes.",
+                    "body": f"Implement standardized tracking across {top_region} to absorb volume without administrative friction.",
                     "accent": "#6366F1"
                 },
                 {
                     "tag": "2. OPEX Containment",
-                    "title": "Preserve Budget Variance Limits",
-                    "body": f"Maintain strict procurement controls to defend our {margin_str} budget efficiency rating across external vendors.",
+                    "title": "Defend Budget Utilization",
+                    "body": f"Maintain procurement controls to safeguard our {margin_str} budget utilization target across departments.",
                     "accent": "#34D399"
                 },
                 {
@@ -168,16 +209,16 @@ def get_deterministic_fallback(report_data: dict, report_title: str = "Executive
                     "accent": "#F87171"
                 },
                 {
-                    "tag": "4. Unit Cost Reduction",
-                    "title": "Compress Cost Per Unit",
-                    "body": f"Renegotiate vendor SLA tiers to reduce average processing cost below the current benchmark of {aov_str}.",
+                    "tag": "4. Unit Cost Control",
+                    "title": "Compress Unit Processing Cost",
+                    "body": f"Standardize service vendor agreements to reduce average processing cost below the current benchmark of {aov_str}.",
                     "accent": "#FBBF24"
                 }
             ],
             "speaker_notes": {
                 "slide_1": f"Good morning. Today we are walking through our operations and expense performance review for {report_title}. We will examine budget allocations, departmental throughput, seasonal peaks, and operational efficiency initiatives.",
-                "slide_2": f"On slide 2, total managed budget reached {rev_str} across {total_orders:,} completed tasks, with an average unit cost of {aov_str}. Our budget efficiency index registered at {margin_str}.",
-                "slide_3": f"Examining seasonal throughput on slide 3: {best_month} saw our heaviest operational volume. In contrast, {worst_month} showed lower volume, offering the ideal window for cross-training and system upgrades.",
+                "slide_2": f"On slide 2, total managed budget reached {rev_str} across {total_orders:,} completed tasks, with an average unit cost of {aov_str}. Budget utilization registered at {margin_str}.",
+                "slide_3": f"Examining seasonal throughput on slide 3: {best_month} saw our heaviest operational volume. In contrast, {worst_month} showed lower volume, offering an ideal window for system maintenance.",
                 "slide_4": f"Slide 4 breaks down our primary departments. {top_cat} commands the majority of resource allocation. We recommend standardizing processes here to unlock operational leverage.",
                 "slide_5": f"Finally, slide 5 presents four operational action items: First, streamline logistics in {top_region}; second, reinforce vendor spend limits; third, balance {worst_month} downtime; and fourth, reduce average unit fulfillment costs."
             }
@@ -194,149 +235,189 @@ def get_deterministic_fallback(report_data: dict, report_title: str = "Executive
                 {
                     "icon": "📈",
                     "title": "Peak Cycle Discovery",
-                    "body": f"{best_month} drove the highest revenue velocity. Allocate marketing budget and inventory ramp-ups 45 days prior to this window."
+                    "body": f"{best_month} drove the highest revenue velocity. Align promotional schedules and inventory readiness ahead of this window."
                 },
                 {
                     "icon": "🏆",
                     "title": "Core Growth Driver",
-                    "body": f"{top_cat} outperforms all other product lines in revenue generation. Expand unit selection in this vertical."
+                    "body": f"{top_cat} outperforms all other categories in revenue contribution. Maintain stock depth in top units."
                 },
                 {
                     "icon": "📍",
                     "title": "Geographic Density",
-                    "body": f"{top_region} commands highest market share. Evaluate localized partnerships and express fulfillment in this region."
+                    "body": f"{top_region} commands highest market share. Evaluate localized fulfillment and distribution partnerships in this region."
                 }
             ],
             "recommendations": [
                 {
                     "tag": "1. Regional Scale",
                     "title": f"Expand Distribution in {top_region}",
-                    "body": f"Prioritize marketing spend and regional fulfillment in {top_region} to maximize market capture.",
+                    "body": f"Prioritize marketing and regional fulfillment in {top_region} to maximize market capture.",
                     "accent": "#6366F1"
                 },
                 {
                     "tag": "2. Margin Defense",
                     "title": "Protect Margin Thresholds",
-                    "body": f"Maintain disciplined pricing to defend our {margin_str} margin tier across key supply channels.",
+                    "body": f"Maintain disciplined pricing to defend our {margin_str} margin tier across key product lines.",
                     "accent": "#34D399"
                 },
                 {
                     "tag": "3. Seasonality Bridge",
                     "title": f"Mitigate {worst_month} Contraction",
-                    "body": f"Deploy targeted promotional incentives and bundle releases to lift volume during the {worst_month} trough.",
+                    "body": f"Deploy targeted incentives and bundle releases to lift volume during the {worst_month} trough.",
                     "accent": "#F87171"
                 },
                 {
                     "tag": "4. Basket Optimization",
                     "title": "Elevate Average Order Value",
-                    "body": f"Introduce cross-sell bundles at checkout to expand order value beyond current benchmark ({aov_str}).",
+                    "body": f"Introduce bundle recommendations to expand transaction values beyond current benchmark ({aov_str}).",
                     "accent": "#FBBF24"
                 }
             ],
             "speaker_notes": {
                 "slide_1": f"Welcome everyone. Today we are reviewing our executive performance report for {report_title}. We will walk through our high-level KPIs, seasonal trends, category margin health, and strategic growth priorities.",
                 "slide_2": f"Slide 2 outlines our bottom-line numbers. Gross revenue closed at {rev_str} across {total_orders:,} orders with an average order value of {aov_str}. Margins remain at {margin_str}, giving us solid runway for reinvestment.",
-                "slide_3": f"Looking at seasonality on slide 3: our peak performance hit in {best_month}. Conversely, {worst_month} showed our seasonal trough. We recommend timing next year's promotional budget to hedge this exact slow period.",
-                "slide_4": f"On slide 4, {top_cat} is our clear anchor category. Our recommendation here is to double down on inventory depth for our top SKUs while reviewing cost structures for trailing categories.",
+                "slide_3": f"Looking at seasonality on slide 3: our peak performance hit in {best_month}. Conversely, {worst_month} showed our seasonal trough. We recommend timing promotional flights to hedge this slow period.",
+                "slide_4": f"On slide 4, {top_cat} is our clear anchor category. Our recommendation is to prioritize inventory depth for our top items while reviewing cost structures for trailing categories.",
                 "slide_5": f"Finally, slide 5 gives leadership four immediate action items: First, capture more market share in {top_region}; second, protect our margins; third, launch campaigns to lift {worst_month}; and fourth, test bundle add-ons to increase order size."
             }
         }
 
 
-def generate_narrative(report_data: dict, report_title: str = "Executive Report", report_mode: str = None, api_key: str = None) -> dict:
+def validate_and_merge_narrative(narrative_dict: dict, fallback_dict: dict) -> dict:
     """
-    Calls the Gemini API (gemini-2.5-flash) using structured output.
+    Validates the structure of the LLM output.
+    If any key or element is malformed, smoothly merges the fallback version so the app never crashes.
+    """
+    if not isinstance(narrative_dict, dict):
+        return fallback_dict
+
+    validated = dict(fallback_dict)
+
+    if isinstance(narrative_dict.get("executive_summary"), str) and narrative_dict["executive_summary"].strip():
+        validated["executive_summary"] = narrative_dict["executive_summary"].strip()
+
+    if isinstance(narrative_dict.get("takeaways"), list) and len(narrative_dict["takeaways"]) >= 3:
+        clean_takeaways = []
+        for t in narrative_dict["takeaways"][:3]:
+            if isinstance(t, dict) and "icon" in t and "title" in t and "body" in t:
+                clean_takeaways.append(t)
+        if len(clean_takeaways) == 3:
+            validated["takeaways"] = clean_takeaways
+
+    if isinstance(narrative_dict.get("recommendations"), list) and len(narrative_dict["recommendations"]) >= 4:
+        clean_recs = []
+        for r in narrative_dict["recommendations"][:4]:
+            if isinstance(r, dict) and "title" in r and "body" in r:
+                clean_recs.append(r)
+        if len(clean_recs) == 4:
+            validated["recommendations"] = clean_recs
+
+    if isinstance(narrative_dict.get("speaker_notes"), dict):
+        sn = narrative_dict["speaker_notes"]
+        for slide in ("slide_1", "slide_2", "slide_3", "slide_4", "slide_5"):
+            if slide in sn and isinstance(sn[slide], str) and sn[slide].strip():
+                validated["speaker_notes"][slide] = sn[slide].strip()
+
+    validated["status"] = narrative_dict.get("status", "ai_generated")
+    validated["report_mode"] = fallback_dict.get("report_mode")
+    return validated
+
+
+def generate_narrative(
+    report_data: dict,
+    report_title: str = "Executive Report",
+    report_mode: str = None,
+    api_key: str = None,
+    currency_symbol: str = "$"
+) -> dict:
+    """
+    Calls the Gemini API using structured output with ExecutiveNarrativeSchema.
     Returns a dictionary with executive_summary, takeaways, recommendations, and speaker_notes.
     Falls back gracefully if the API key is not present or an error occurs.
     """
     mode = report_mode or report_data.get("report_mode", "Sales & Retail Performance")
+    curr = currency_symbol or report_data.get("meta", {}).get("currency_symbol", "$")
     resolved_key = api_key or get_gemini_api_key()
+
+    fallback = get_deterministic_fallback(report_data, report_title, report_mode=mode, currency_symbol=curr)
+
     if not resolved_key:
         print(f"ℹ️  No Gemini API key found. Using deterministic template narrative ({mode}).")
-        return get_deterministic_fallback(report_data, report_title, report_mode=mode)
+        return fallback
 
     try:
         from google import genai
         from google.genai import types
 
         client = genai.Client(api_key=resolved_key)
+        model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
-        # Build compact mathematical summary payload
         kpis = report_data.get("kpis", {})
         ins = report_data.get("insights", {})
 
         payload = {
             "report_title": report_title,
+            "report_mode": mode,
+            "currency_symbol": curr,
             "total_revenue": kpis.get("total_revenue"),
             "total_profit": kpis.get("total_profit"),
-            "profit_margin_pct": kpis.get("profit_margin"),
+            "profit_margin": kpis.get("profit_margin"),
+            "efficiency_display": kpis.get("efficiency_display"),
+            "efficiency_metric_name": kpis.get("efficiency_metric_name"),
             "total_orders": kpis.get("total_orders"),
             "avg_order_value": kpis.get("avg_order_value"),
+            "cmgr_pct": ins.get("cmgr"),
+            "growth_label": ins.get("growth_label"),
             "best_performing_month": ins.get("best_month"),
             "lowest_performing_month": ins.get("worst_month"),
-            "avg_mom_growth_pct": ins.get("avg_mom_growth"),
+            "partial_months": ins.get("partial_months", []),
             "top_category": ins.get("top_category"),
             "top_region": ins.get("top_region"),
-            "top_channel": ins.get("top_channel"),
+            "top_channel": ins.get("top_channel") if ins.get("has_channel") else None,
             "statistical_anomalies": ins.get("anomalies", []),
             "anomaly_headline": ins.get("anomaly_headline", ""),
         }
 
-        # Add report mode to payload
-        payload["report_mode"] = mode
-
         role_personas = {
-            "Marketing": "an elite Chief Marketing Officer (CMO) and Growth Strategist focusing on ROAS, CAC, ad spend efficiency, conversion funnels, and paid/organic scale.",
-            "Operations": "an elite Chief Operating Officer (COO) and Systems Strategist focusing on OPEX, cost containment, vendor efficiency, departmental budget variance, and throughput bottlenecks.",
-            "Sales": "an elite Chief Commercial Officer (CCO) and Boardroom Strategist focusing on revenue velocity, margin expansion, product dominance, and regional market share."
+            "Marketing": "an elite Chief Marketing Officer (CMO) and Growth Strategist focusing strictly on verified ROAS, CPA, ad spend efficiency, and channel performance.",
+            "Operations": "an elite Chief Operating Officer (COO) and Systems Strategist focusing strictly on verified OPEX, budget utilization, and departmental variance.",
+            "Sales": "an elite Chief Commercial Officer (CCO) and Boardroom Strategist focusing strictly on verified revenue velocity, margin health, product leadership, and geographic density."
         }
         active_persona = role_personas["Marketing"] if "Marketing" in mode else (role_personas["Operations"] if "Operations" in mode else role_personas["Sales"])
 
         prompt = f"""
 You are {active_persona}
-Analyze the following verified performance data for this '{mode}' workflow and provide strategic boardroom commentary:
+Analyze the following verified data for this '{mode}' executive presentation and deliver incisive, boardroom-ready commentary:
 
-VERIFIED DATA (Do NOT invent or alter any numbers):
+VERIFIED DATA (Every dollar and unit metric must align with these values; use currency symbol '{curr}'):
 {json.dumps(payload, indent=2)}
 
 Requirements:
-1. executive_summary: A 2-3 sentence strategic executive briefing tailored to the '{mode}' context, highlighting financial health, peak performance, and strategic outlook. If statistical anomalies are present in 'statistical_anomalies', explicitly reference the primary outlier surge or contraction.
-2. takeaways: An array of exactly 3 insight items tailored to this workflow. Each item must have:
-   - "icon": an appropriate emoji (e.g., "🎯", "⚡", "📈")
-   - "title": a 3-5 word executive label
-   - "body": 1-2 concise, high-impact analytical sentences
-3. recommendations: An array of exactly 4 prioritized, actionable strategic recommendations for leadership. Each item must have:
-   - "tag": formatted as "1. Category", "2. Category", etc.
-   - "title": concise action-oriented title
-   - "body": specific commercial instruction (1-2 sentences)
-   - "accent": hex color (choose from #6366F1, #34D399, #F87171, #FBBF24)
-4. speaker_notes: An object containing slide-by-slide presenter scripts for 5 slides:
-   - "slide_1": Warm boardroom welcome, framing the agenda for {report_title}.
-   - "slide_2": Commentary on bottom-line numbers, volume, and unit efficiency.
-   - "slide_3": Momentum, peak month seasonality, and trough mitigation.
-   - "slide_4": Category dominance, departmental/channel breakdown, and item performance.
-   - "slide_5": Executive call to action detailing the next operational or strategic steps.
+1. executive_summary: A 2-3 sentence strategic briefing grounded in the verified numbers. If statistical_anomalies are present, explicitly reference the top outlier surge or contraction.
+2. takeaways: An array of exactly 3 data-grounded insights (icon, title, body). Do NOT make unsupported assumptions about repeat rates or unmeasured channels.
+3. recommendations: An array of exactly 4 prioritized, actionable strategic recommendations (tag like '1. Category', title, body, accent from #6366F1, #34D399, #F87171, #FBBF24).
+4. speaker_notes: Slide-by-slide presenter scripts for 5 slides (slide_1 through slide_5).
 
 Tone: Professional, incisive, data-backed, boardroom-ready.
 """
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=model_name,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
+                response_schema=ExecutiveNarrativeSchema,
                 temperature=0.3,
             ),
         )
 
-        result = json.loads(response.text)
-        result["status"] = "ai_generated"
-        result["report_mode"] = mode
-        return result
+        parsed_json = json.loads(response.text)
+        parsed_json["status"] = "ai_generated"
+        return validate_and_merge_narrative(parsed_json, fallback)
 
     except Exception as e:
         print(f"⚠️  Gemini API call failed ({e}). Falling back to deterministic narrative.")
-        fallback = get_deterministic_fallback(report_data, report_title, report_mode=mode)
         fallback["error"] = str(e)
         return fallback
 
@@ -345,9 +426,9 @@ if __name__ == "__main__":
     from analysis_engine import build_report
     path = os.path.join(os.path.dirname(__file__), "sales_data.csv")
     rep = build_report(path)
-    nar = generate_narrative(rep, "2024 Annual Performance Report")
+    nar = generate_narrative(rep, "2024 Annual Performance Report", currency_symbol="$")
     print(f"\nNarrative Status: {nar['status']}")
     print(f"Executive Summary:\n{nar['executive_summary']}\n")
-    print("Recommendations:")
-    for r in nar["recommendations"]:
-        print(f"  - [{r['tag']}] {r['title']}: {r['body']}")
+    print("Takeaways:")
+    for t in nar["takeaways"]:
+        print(f"  {t['icon']} {t['title']}: {t['body']}")
