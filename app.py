@@ -707,13 +707,17 @@ with st.sidebar:
         score = hygiene.get('health_score', 100)
         status = hygiene.get('health_status', 'Certified Clean')
         status_color = "#34D399" if score >= 98 else "#FBBF24"
+        retention = hygiene.get('rows_retained_pct', 100.0)
+        dropped_count = hygiene.get('dropped_rows_count', 0)
+        dropped_line = f"<div>• Dropped blank/unparseable rows: <strong>{dropped_count:,}</strong></div>" if dropped_count > 0 else ""
         st.markdown(f"""
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
             <span style="font-size:11px;font-weight:700;color:#94A3B8;text-transform:uppercase;">Data Integrity</span>
             <span style="font-size:11px;font-weight:700;color:{status_color};background:rgba(16,185,129,0.12);padding:2px 8px;border-radius:10px;border:1px solid rgba(16,185,129,0.25);">✦ {status} ({score}%)</span>
         </div>
         <div style="font-size:12px;color:#CBD5E1;line-height:1.6;margin-bottom:10px;">
-            <div>• <strong>{hygiene.get('clean_row_count', 0):,}</strong> records parsed (100% retention)</div>
+            <div>• <strong>{hygiene.get('clean_row_count', 0):,}</strong> records parsed ({retention}% retention)</div>
+            {dropped_line}
             <div>• Coverage: <strong>{hygiene.get('date_range', 'Validated')}</strong></div>
             <div>• Sanitized formatters/nulls: <strong>{hygiene.get('currency_symbols_stripped', 0) + hygiene.get('missing_values_imputed', 0):,}</strong></div>
         </div>
@@ -798,7 +802,8 @@ with tab_dash:
     # ─────────────────────────────────────────────────────────────────────────────
     # KPI CARDS (Linear Obsidian Style)
     # ─────────────────────────────────────────────────────────────────────────────
-    hygiene_pill = f'<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);color:#34D399;margin-left:8px;">✔ {hygiene.get("clean_row_count", len(df)):,} Records Certified</span>'
+    status_suffix = "Certified" if hygiene.get("health_score", 100) == 100 else "Sanitized"
+    hygiene_pill = f'<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);color:#34D399;margin-left:8px;">✔ {hygiene.get("clean_row_count", len(df)):,} Records {status_suffix}</span>'
     st.markdown(f'<div class="section-title">Core Performance Indicators <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;margin-left:8px;">{report_mode}</span>{hygiene_pill}</div>', unsafe_allow_html=True)
 
     if narrative.get("executive_summary"):

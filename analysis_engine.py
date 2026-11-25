@@ -9,23 +9,109 @@ import numpy as np
 import re
 
 
-def sanitize_numeric_column(series: pd.Series) -> tuple:
+def parse_single_numeric(val):
     """
-    Cleans strings with currency symbols ($ € £ ¥ GHS GH¢ USD EUR), commas,
-    percentages, and whitespace before converting to float safely.
-    Returns (cleaned_series, dirty_or_null_count).
+    Parses a single scalar value into float.
+    Handles accounting negatives (500) -> -500, K/M/B suffixes,
+    European vs US decimal formats, and currency symbols.
+    Returns (float_value, is_null_imputed, was_formatted).
+    """
+    if pd.isna(val):
+        return 0.0, True, False
+    if isinstance(val, (int, float, np.number)):
+        return float(val), False, False
+
+    s = str(val).strip()
+    if not s or s.lower() in ("nan", "none", "null", "n/a", "-", "—"):
+        return 0.0, True, False
+
+    original = s
+    is_negative = False
+
+    # Check accounting parentheses: (500) or ($1,234.50)
+    if s.startswith("(") and s.endswith(")"):
+        is_negative = True
+        s = s[1:-1].strip()
+    elif s.startswith("-"):
+        is_negative = True
+        s = s[1:].strip()
+    elif s.endswith("-"):
+        is_negative = True
+        s = s[:-1].strip()
+
+    # Check suffixes: K, M, B (case-insensitive)
+    multiplier = 1.0
+    match_suffix = re.search(r'([0-9.,]+)\s*([kKmMbB])\b', s)
+    if match_suffix:
+        num_part = match_suffix.group(1)
+        suffix = match_suffix.group(2).upper()
+        if suffix == 'K':
+            multiplier = 1e3
+        elif suffix == 'M':
+            multiplier = 1e6
+        elif suffix == 'B':
+            multiplier = 1e9
+        s = num_part
+
+    # Strip any remaining non-digit, non-period, non-comma characters (currency symbols, etc.)
+    cleaned_chars = [ch for ch in s if ch.isdigit() or ch in ('.', ',')]
+    if not any(ch.isdigit() for ch in cleaned_chars):
+        # String contains no digits (e.g. "invalid", "error", "pending") -> unparseable/null
+        return 0.0, True, False
+
+    s = "".join(cleaned_chars)
+
+    # European vs US decimal parsing
+    if '.' in s and ',' in s:
+        if s.rfind(',') > s.rfind('.'):
+            # European: 1.234,56 -> 1234.56
+            s = s.replace('.', '').replace(',', '.')
+        else:
+            # US: 1,234.56 -> 1234.56
+            s = s.replace(',', '')
+    elif ',' in s:
+        parts = s.split(',')
+        if len(parts) == 2 and len(parts[1]) in (1, 2):
+            # Decimal comma: 12,5 or 1234,56
+            s = parts[0] + '.' + parts[1]
+        else:
+            # Thousands separator: 1,000 or 1,234,567
+            s = s.replace(',', '')
+
+    try:
+        val_float = float(s) * multiplier
+        if is_negative:
+            val_float = -val_float
+        was_formatted = (val_float != val)
+        return val_float, False, was_formatted
+    except ValueError:
+        return 0.0, True, False
+
+
+def sanitize_numeric_column(series: pd.Series, return_details: bool = False) -> tuple:
+    """
+    Cleans strings with currency symbols ($ € £ ¥ GHS GH¢ ₵ ₦), commas,
+    percentages, accounting parentheses (500) -> -500, K/M/B suffixes,
+    and European decimal formats before converting safely to float.
+    Returns (cleaned_series, modifications_count) by default, or
+    (cleaned_series, modifications_count, nulls_imputed_count) when return_details=True.
     """
     if series is None or series.empty:
-        return pd.Series(dtype=float), 0
+        s = pd.Series(dtype=float)
+        return (s, 0, 0) if return_details else (s, 0)
+
     if pd.api.types.is_numeric_dtype(series):
         null_count = int(series.isna().sum())
-        return pd.to_numeric(series, errors="coerce").fillna(0.0), null_count
+        cleaned = pd.to_numeric(series, errors="coerce").fillna(0.0)
+        return (cleaned, 0, null_count) if return_details else (cleaned, null_count)
 
-    as_str = series.astype(str)
-    dirty_count = int(as_str.str.contains(r"[^\d.-]", regex=True).sum())
-    cleaned = as_str.str.replace(r"[^\d.-]", "", regex=True)
-    numeric = pd.to_numeric(cleaned, errors="coerce").fillna(0.0)
-    return numeric, dirty_count
+    results = [parse_single_numeric(v) for v in series]
+    vals = [r[0] for r in results]
+    null_count = sum(1 for r in results if r[1])
+    mod_count = sum(1 for r in results if r[2])
+    cleaned = pd.Series(vals, index=series.index, dtype=float)
+
+    return (cleaned, mod_count, null_count) if return_details else (cleaned, mod_count)
 
 
 def clean_numeric_series(series: pd.Series) -> pd.Series:
@@ -282,42 +368,62 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     # Bulletproof guard against duplicate column names from any source
     clean_df = clean_df.loc[:, ~clean_df.columns.duplicated()]
 
-    # Standardize Date column
+    # Drop rows that are completely empty / all NaN across all columns
+    initial_len = len(clean_df)
+    clean_df = clean_df.dropna(how="all")
+    dropped_empty_rows = initial_len - len(clean_df)
+    if dropped_empty_rows > 0:
+        audit_trail.append(f"Dropped {dropped_empty_rows} completely blank row(s)")
+
+    # Standardize Date column with mixed-format resilience (e.g., European 31/12/2024, ISO, dot-separated)
     if "Date" in clean_df.columns:
-        parsed_dates = pd.to_datetime(clean_df["Date"], errors="coerce")
+        try:
+            parsed_dates = pd.to_datetime(clean_df["Date"], errors="coerce", format="mixed")
+        except Exception:
+            parsed_dates = pd.to_datetime(clean_df["Date"], errors="coerce")
+
         null_dates = int(parsed_dates.isna().sum())
         if null_dates > 0:
             parsed_dates = parsed_dates.fillna(pd.Timestamp("2024-01-01"))
             nulls_imputed_total += null_dates
-            audit_trail.append(f"Imputed {null_dates} invalid date timestamp(s)")
+            audit_trail.append(f"Imputed {null_dates} invalid date timestamp(s) to 2024-01-01")
         clean_df["Date"] = parsed_dates
     else:
         clean_df["Date"] = pd.date_range(start="2024-01-01", periods=len(clean_df), freq="D")
         audit_trail.append("Generated baseline date timeline (no Date column mapped)")
 
-    # Harden numeric columns against currency symbols and commas
+    # Harden numeric columns against currency symbols, accounting negatives, European decimals, and K/M suffixes
     if "Revenue" in clean_df.columns:
-        clean_df["Revenue"], sym_cnt = sanitize_numeric_column(clean_df["Revenue"])
+        clean_df["Revenue"], sym_cnt, null_cnt = sanitize_numeric_column(clean_df["Revenue"], return_details=True)
         symbols_cleaned_total += sym_cnt
+        nulls_imputed_total += null_cnt
         if sym_cnt > 0:
-            audit_trail.append(f"Sanitized {sym_cnt} formatted values/symbols in Revenue")
+            audit_trail.append(f"Sanitized {sym_cnt} formatted value(s)/symbol(s) in Revenue")
+        if null_cnt > 0:
+            audit_trail.append(f"Imputed {null_cnt} missing/invalid Revenue value(s) to 0.0")
     else:
         clean_df["Revenue"] = 0.0
 
     if has_mapped_cost and "Cost" in clean_df.columns:
-        clean_df["Cost"], sym_cnt = sanitize_numeric_column(clean_df["Cost"])
+        clean_df["Cost"], sym_cnt, null_cnt = sanitize_numeric_column(clean_df["Cost"], return_details=True)
         symbols_cleaned_total += sym_cnt
+        nulls_imputed_total += null_cnt
         if sym_cnt > 0:
-            audit_trail.append(f"Sanitized {sym_cnt} formatted values in Cost")
+            audit_trail.append(f"Sanitized {sym_cnt} formatted value(s) in Cost")
+        if null_cnt > 0:
+            audit_trail.append(f"Imputed {null_cnt} missing/invalid Cost value(s) to 0.0")
     else:
         clean_df["Cost"] = 0.0
 
     if has_mapped_profit and "Profit" in clean_df.columns:
-        clean_df["Profit"], sym_cnt = sanitize_numeric_column(clean_df["Profit"])
+        clean_df["Profit"], sym_cnt, null_cnt = sanitize_numeric_column(clean_df["Profit"], return_details=True)
         symbols_cleaned_total += sym_cnt
+        nulls_imputed_total += null_cnt
         has_profit = True
         if sym_cnt > 0:
-            audit_trail.append(f"Sanitized {sym_cnt} formatted values in Profit")
+            audit_trail.append(f"Sanitized {sym_cnt} formatted value(s) in Profit")
+        if null_cnt > 0:
+            audit_trail.append(f"Imputed {null_cnt} missing/invalid Profit value(s) to 0.0")
     elif has_mapped_cost and "Cost" in clean_df.columns:
         clean_df["Profit"] = clean_df["Revenue"] - clean_df["Cost"]
         has_profit = True
@@ -327,30 +433,49 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
         has_profit = False
 
     if "Quantity" in clean_df.columns:
-        clean_df["Quantity"], q_cnt = sanitize_numeric_column(clean_df["Quantity"])
+        clean_df["Quantity"], q_cnt, q_nulls = sanitize_numeric_column(clean_df["Quantity"], return_details=True)
         clean_df["Quantity"] = clean_df["Quantity"].clip(lower=1)
-        nulls_imputed_total += q_cnt
+        symbols_cleaned_total += q_cnt
+        nulls_imputed_total += q_nulls
+        if q_cnt > 0:
+            audit_trail.append(f"Sanitized {q_cnt} formatted value(s) in Quantity")
     else:
         clean_df["Quantity"] = 1
 
     clean_row_count = len(clean_df)
+    dropped_rows_total = raw_row_count - clean_row_count
+    retention_pct = round((clean_row_count / raw_row_count * 100), 1) if raw_row_count > 0 else 100.0
+
     min_date = clean_df["Date"].min()
     max_date = clean_df["Date"].max()
     date_range_str = f"{min_date.strftime('%b %d, %Y')} – {max_date.strftime('%b %d, %Y')}" if pd.notna(min_date) else "N/A"
 
-    audit_trail.insert(0, f"Ingested {raw_row_count:,} raw records (100% data integrity verified)")
+    audit_trail.insert(0, f"Ingested {raw_row_count:,} raw records ({clean_row_count:,} parsed, {retention_pct}% retained)")
     audit_trail.append(f"Validated time series coverage: {date_range_str}")
     audit_trail.append(f"Deterministic calculation of {report_mode} metrics completed")
+
+    total_modifications = symbols_cleaned_total + nulls_imputed_total + dropped_rows_total
+    if total_modifications == 0:
+        health_score = 100
+        health_status = "Certified Clean"
+    elif nulls_imputed_total == 0 and dropped_rows_total == 0:
+        health_score = 99
+        health_status = f"High Integrity ({symbols_cleaned_total} formatted symbols sanitized)"
+    else:
+        penalty = min(25, (nulls_imputed_total * 2) + (dropped_rows_total * 5))
+        health_score = max(70, 100 - penalty)
+        health_status = f"Sanitized ({total_modifications} modifications)"
 
     hygiene = {
         "raw_row_count": raw_row_count,
         "clean_row_count": clean_row_count,
-        "rows_retained_pct": 100.0,
+        "dropped_rows_count": dropped_rows_total,
+        "rows_retained_pct": retention_pct,
         "currency_symbols_stripped": symbols_cleaned_total,
         "missing_values_imputed": nulls_imputed_total,
         "date_range": date_range_str,
-        "health_score": 100 if nulls_imputed_total == 0 else 99,
-        "health_status": "Certified Clean" if nulls_imputed_total == 0 else "High Integrity (Sanitized)",
+        "health_score": health_score,
+        "health_status": health_status,
         "audit_log": audit_trail,
     }
 
