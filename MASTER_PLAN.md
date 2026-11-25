@@ -69,9 +69,9 @@ You are my **Senior Technical Co-Founder, Lead Data Engineer, and SaaS Product A
 - [x] **Protect Server Gemini Key & Add Explicit Trigger (`app.py`):** Add an explicit **"✨ Generate AI Commentary"** button (instead of auto-firing paid API calls on every title/currency tweak) and guard server-side API key usage if no user key is entered.
 
 #### Milestone 4: Shared Architecture & Automated Tests
-- [ ] **Centralize Column Inference (`analysis_engine.py`):** Move `infer_mapping()` into `analysis_engine.py` so both `app.py` and `run_pipeline.py` can auto-detect columns on any CSV.
-- [ ] **Seasonal Sample Data & Dynamic Year (`generate_data.py` & `app.py`):** Add realistic Q4/holiday seasonality to `generate_sales_data()` so demo insights look authentic, and replace hardcoded `"2024"` titles with the dataset's actual detected year.
-- [ ] **Automated Golden Tests (`tests/test_engine.py`):** Add a compact `pytest` suite verifying seeded KPI math, `sanitize_numeric_column` edge cases (`₵1,200.50`, `(500)`, `1.5K`), and Marketing/Operations formulas.
+- [x] **Centralize Column Inference (`analysis_engine.py`):** Move `infer_mapping()` into `analysis_engine.py` so both `app.py` and `run_pipeline.py` can auto-detect columns on any CSV.
+- [x] **Seasonal Sample Data & Dynamic Year (`generate_data.py` & `app.py`):** Add realistic Q4/holiday seasonality to `generate_sales_data()` so demo insights look authentic, and replace hardcoded `"2024"` titles with the dataset's actual detected year.
+- [x] **Automated Golden Tests (`tests/test_engine.py`):** Add a compact `pytest` suite verifying seeded KPI math, `sanitize_numeric_column` edge cases (`₵1,200.50`, `(500)`, `1.5K`), and Marketing/Operations formulas.
 
 ## 4. PHASE 2: Commercial SaaS Product (v1.0 Paid Full-Stack)
 *Goal: Monetize the validated Python engines into a secure multi-user SaaS.*

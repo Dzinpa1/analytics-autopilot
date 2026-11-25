@@ -39,9 +39,9 @@ def parse_single_numeric(val):
         is_negative = True
         s = s[:-1].strip()
 
-    # Check suffixes: K, M, B (case-insensitive)
+    # Check suffixes: K, M, B, T (case-insensitive)
     multiplier = 1.0
-    match_suffix = re.search(r'([0-9.,]+)\s*([kKmMbB])\b', s)
+    match_suffix = re.search(r'([0-9.,]+)\s*([kKmMbBtT])\b', s)
     if match_suffix:
         num_part = match_suffix.group(1)
         suffix = match_suffix.group(2).upper()
@@ -51,6 +51,8 @@ def parse_single_numeric(val):
             multiplier = 1e6
         elif suffix == 'B':
             multiplier = 1e9
+        elif suffix == 'T':
+            multiplier = 1e12
         s = num_part
 
     # Strip any remaining non-digit, non-period, non-comma characters (currency symbols, etc.)
@@ -218,7 +220,7 @@ def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "
     elif "Operations" in mode:
         # Operations & Logistics: Variance & Budget Utilization %
         op_budget = float(df["Revenue"].sum())
-        actual_expenses = float(df["Cost"].sum()) if "Cost" in df.columns and (df["Cost"].sum() > 0 or has_profit) else (float(df["Profit"].sum()) if has_profit and "Profit" in df.columns else 0.0)
+        actual_expenses = float(df["Cost"].sum()) if ("Cost" in df.columns and df["Cost"].sum() > 0) else (float(df["Profit"].sum()) if (has_profit and "Profit" in df.columns) else 0.0)
         variance = round(op_budget - actual_expenses, 2)
         utilization_pct = round((actual_expenses / op_budget * 100), 1) if op_budget > 0 else 0.0
         cost_per_order = round((actual_expenses / total_orders), 2) if total_orders > 0 else 0.0
@@ -382,7 +384,7 @@ def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict, has_profi
         if not daily.empty and pd.notna(min_date) and pd.notna(max_date):
             full_idx = pd.date_range(start=min_date.floor("D"), end=max_date.floor("D"), freq="D")
             daily = daily.set_index("Day_Date").reindex(full_idx, fill_value=0.0).reset_index()
-            daily.rename(columns={"index": "Day_Date"}, inplace=True)
+            daily = daily.rename(columns={"index": "Day_Date"})
             if "Orders" in daily.columns:
                 daily["Orders"] = daily["Orders"].fillna(0).astype(int)
 
@@ -578,7 +580,7 @@ def monthly_trend(df: pd.DataFrame, has_profit: bool = True) -> pd.DataFrame:
     if not monthly.empty:
         full_idx = pd.period_range(start=monthly["Month"].min(), end=monthly["Month"].max(), freq="M")
         monthly = monthly.set_index("Month").reindex(full_idx, fill_value=0.0).reset_index()
-        monthly.rename(columns={"index": "Month"}, inplace=True)
+        monthly = monthly.rename(columns={"index": "Month"})
         if "Orders" in monthly.columns:
             monthly["Orders"] = monthly["Orders"].fillna(0).astype(int)
 
