@@ -893,12 +893,18 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     if dropped_empty_rows > 0:
         audit_trail.append(f"Dropped {dropped_empty_rows} completely blank row(s)")
 
-    # Standardize Date column with mixed-format resilience (e.g., European 31/12/2024, ISO, dot-separated)
+    # Standardize Date column with mixed-format and numeric Excel serial resilience
     if "Date" in clean_df.columns:
-        try:
-            parsed_dates = pd.to_datetime(clean_df["Date"], errors="coerce", format="mixed")
-        except Exception:
-            parsed_dates = pd.to_datetime(clean_df["Date"], errors="coerce")
+        if pd.api.types.is_numeric_dtype(clean_df["Date"]):
+            try:
+                parsed_dates = pd.to_datetime(clean_df["Date"], unit="D", origin="1899-12-30")
+            except Exception:
+                parsed_dates = pd.to_datetime(clean_df["Date"], errors="coerce")
+        else:
+            try:
+                parsed_dates = pd.to_datetime(clean_df["Date"], errors="coerce", format="mixed")
+            except Exception:
+                parsed_dates = pd.to_datetime(clean_df["Date"], errors="coerce")
 
         null_dates = int(parsed_dates.isna().sum())
         if null_dates > 0:

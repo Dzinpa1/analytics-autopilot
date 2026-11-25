@@ -770,7 +770,9 @@ col_mapping = {
 
 # Deterministic content hash ensures uploading a new dataset with identical column names
 # recomputes fresh metrics while keeping slide carousel navigation instant.
+ENGINE_VERSION = "v3.2_adaptive_horizons_cachebuster"
 data_hash = hashlib.md5(pd.util.hash_pandas_object(df, index=True).values).hexdigest()
+data_signature = f"{data_hash}_{ENGINE_VERSION}"
 
 @st.cache_data(show_spinner=False)
 def get_cached_report(_df, mapping, mode, curr, data_signature):
@@ -899,7 +901,7 @@ def get_cached_cleaned_workbook(_clean_df, hygiene, _quarantined_df, curr, data_
     return generate_cleaned_workbook(_clean_df, hygiene, _quarantined_df, currency_symbol=curr)
 
 try:
-    report_data = get_cached_report(df, col_mapping, report_mode, curr_sym, data_hash)
+    report_data = get_cached_report(df, col_mapping, report_mode, curr_sym, data_signature)
 except Exception as e:
     st.error(f"⚠️ **Could not process this spreadsheet:** {str(e)}\n\nPlease ensure your Date and Revenue columns contain valid values.")
     st.stop()
@@ -912,7 +914,7 @@ if uploaded_file:
     clean_export_filename = f"{orig_stem}_Cleaned.xlsx"
 else:
     clean_export_filename = f"{safe_filename}_Cleaned.xlsx"
-cleaned_wb_bytes = get_cached_cleaned_workbook(clean_export_df, report_data.get("hygiene", {}), quarantined_df, curr_sym, data_hash)
+cleaned_wb_bytes = get_cached_cleaned_workbook(clean_export_df, report_data.get("hygiene", {}), quarantined_df, curr_sym, data_signature)
 
 kpis      = report_data["kpis"]
 monthly   = report_data["monthly"]
