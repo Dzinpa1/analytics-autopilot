@@ -345,30 +345,68 @@ def detect_time_series_anomalies(monthly: pd.DataFrame, z_threshold: float = 2.0
     return sorted(anomalies, key=lambda a: abs(a["z_score"]), reverse=True)
 
 
-def category_breakdown(df: pd.DataFrame, has_profit: bool = True) -> pd.DataFrame:
+def category_breakdown(df: pd.DataFrame, has_profit: bool = True, max_categories: int = 12) -> pd.DataFrame:
     agg_dict = {"Revenue": ("Revenue", "sum"), "Orders": ("Revenue", "count")}
     if has_profit and "Profit" in df.columns:
         agg_dict["Profit"] = ("Profit", "sum")
 
     cat = df.groupby("Category").agg(**agg_dict).reset_index()
-    if has_profit and "Profit" in cat.columns:
-        cat["Margin_%"] = (cat["Profit"] / cat["Revenue"] * 100).round(2)
-    else:
+    if not has_profit or "Profit" not in cat.columns:
         cat["Profit"] = 0.0
+
+    # High-cardinality guard: if more than 12 unique categories, keep top 10 and roll the rest into "Other"
+    if len(cat) > max_categories:
+        cat = cat.sort_values("Revenue", ascending=False)
+        top_slice = cat.iloc[:10].copy()
+        other_slice = cat.iloc[10:]
+
+        other_rev = float(other_slice["Revenue"].sum())
+        other_orders = int(other_slice["Orders"].sum())
+        other_profit = float(other_slice["Profit"].sum()) if "Profit" in other_slice.columns else 0.0
+
+        other_row = pd.DataFrame([{
+            "Category": f"Other ({len(other_slice)} items)",
+            "Revenue": other_rev,
+            "Orders": other_orders,
+            "Profit": other_profit,
+        }])
+        cat = pd.concat([top_slice, other_row], ignore_index=True)
+    else:
+        cat = cat.sort_values("Revenue", ascending=False)
+
+    if has_profit and "Profit" in cat.columns:
+        cat["Margin_%"] = (cat["Profit"] / cat["Revenue"].replace(0, np.nan) * 100).fillna(0.0).round(2)
+    else:
         cat["Margin_%"] = 0.0
 
-    cat["Revenue_%"] = (cat["Revenue"] / cat["Revenue"].sum() * 100).round(2) if cat["Revenue"].sum() else 0.0
-    return cat.sort_values("Revenue", ascending=False)
+    total_rev = cat["Revenue"].sum()
+    cat["Revenue_%"] = (cat["Revenue"] / total_rev * 100).round(2) if total_rev else 0.0
+    return cat
 
 
-def region_breakdown(df: pd.DataFrame) -> pd.DataFrame:
+def region_breakdown(df: pd.DataFrame, max_regions: int = 12) -> pd.DataFrame:
     reg = (
         df.groupby("Region")
           .agg(Revenue=("Revenue", "sum"))
           .reset_index()
     )
-    reg["Revenue_%"] = (reg["Revenue"] / reg["Revenue"].sum() * 100).round(2) if reg["Revenue"].sum() else 0.0
-    return reg.sort_values("Revenue", ascending=False)
+    # High-cardinality guard: if more than 12 unique regions, keep top 10 and roll the rest into "Other"
+    if len(reg) > max_regions:
+        reg = reg.sort_values("Revenue", ascending=False)
+        top_slice = reg.iloc[:10].copy()
+        other_slice = reg.iloc[10:]
+        other_rev = float(other_slice["Revenue"].sum())
+        other_row = pd.DataFrame([{
+            "Region": f"Other ({len(other_slice)} regions)",
+            "Revenue": other_rev,
+        }])
+        reg = pd.concat([top_slice, other_row], ignore_index=True)
+    else:
+        reg = reg.sort_values("Revenue", ascending=False)
+
+    total_rev = reg["Revenue"].sum()
+    reg["Revenue_%"] = (reg["Revenue"] / total_rev * 100).round(2) if total_rev else 0.0
+    return reg
 
 
 def top_products(df: pd.DataFrame, n: int = 5) -> pd.DataFrame:
