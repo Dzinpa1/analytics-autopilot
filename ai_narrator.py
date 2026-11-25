@@ -73,7 +73,8 @@ def get_deterministic_fallback(
     report_data: dict,
     report_title: str = "Executive Report",
     report_mode: str = None,
-    currency_symbol: str = "$"
+    currency_symbol: str = "$",
+    **kwargs
 ) -> dict:
     """
     Deterministic template fallback when Gemini API key is missing or calls fail.
@@ -329,7 +330,8 @@ def generate_narrative(
     report_title: str = "Executive Report",
     report_mode: str = None,
     api_key: str = None,
-    currency_symbol: str = "$"
+    currency_symbol: str = "$",
+    **kwargs
 ) -> dict:
     """
     Calls the Gemini API using structured output with ExecutiveNarrativeSchema.

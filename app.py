@@ -771,6 +771,9 @@ growth_pill_class = "pill-blue" if growth_arrow == "↑" else "pill-amber"
 # ─────────────────────────────────────────────────────────────────────────────
 # AI NARRATIVE GENERATION (Cached in st.session_state)
 # ─────────────────────────────────────────────────────────────────────────────
+import importlib
+import ai_narrator
+importlib.reload(ai_narrator)
 from ai_narrator import generate_narrative, get_gemini_api_key
 
 active_api_key = (gemini_api_key_input.strip() if 'gemini_api_key_input' in locals() and gemini_api_key_input else None) or get_gemini_api_key()
