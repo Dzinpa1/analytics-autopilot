@@ -324,3 +324,44 @@ class TestDrilldownAndScopes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTrueMonthlyMetrics(unittest.TestCase):
+    def _daily(self, start, end, rev_fn):
+        dates = pd.date_range(start, end, freq="D")
+        return pd.DataFrame({"Date": dates, "Revenue": [rev_fn(d) for d in dates]})
+
+    def test_cmgr_uses_true_monthly_series_not_quarters(self):
+        # 9 full months, revenue doubles from Jan -> Sep (compound ~9.05%/mo)
+        df = self._daily("2024-01-01", "2024-09-30", lambda d: 100.0 * (1.0905 ** (d.month - 1)) / d.days_in_month)
+        r = build_report_from_df(df)
+        self.assertEqual(len(r["monthly_series"]), 9)
+        self.assertAlmostEqual(r["insights"]["cmgr"], 9.05, delta=0.2)
+        self.assertIn("CMGR", r["insights"]["growth_label"])
+
+    def test_not_enough_history(self):
+        df = self._daily("2024-01-01", "2024-02-29", lambda d: 10.0)
+        r = build_report_from_df(df)
+        self.assertIsNone(r["insights"]["cmgr"])
+        self.assertEqual(r["insights"]["growth_label"], "Not enough history")
+
+    def test_partial_last_month_excluded_and_no_inf(self):
+        df = self._daily("2024-01-01", "2024-06-10", lambda d: 10.0)
+        r = build_report_from_df(df)
+        self.assertIn("Jun 2024", r["insights"]["partial_months"])
+        ms = r["monthly_series"]
+        self.assertFalse(np.isinf(ms["MoM_Growth"].dropna()).any())
+
+    def test_gap_month_does_not_produce_inf(self):
+        d1 = self._daily("2024-01-01", "2024-02-29", lambda d: 10.0)
+        d2 = self._daily("2024-04-01", "2024-06-30", lambda d: 10.0)
+        r = build_report_from_df(pd.concat([d1, d2]))
+        self.assertFalse(np.isinf(r["monthly_series"]["MoM_Growth"].dropna()).any())
+
+    def test_no_valid_dates_does_not_crash(self):
+        df = pd.DataFrame({"Date": ["x", "y"], "Revenue": [1, 2]})
+        build_report_from_df(df)
+
+    def test_growth_chart_type_accepted(self):
+        import chart_engine, inspect
+        self.assertNotIn('== "MoM Growth %"', inspect.getsource(chart_engine))

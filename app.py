@@ -927,7 +927,7 @@ best_month  = insights["best_month"]
 worst_month = insights["worst_month"]
 top_cat     = insights["top_category"]
 top_region  = insights["top_region"]
-mom_avg     = insights["avg_mom_growth"]
+mom_avg     = insights["avg_mom_growth"]  # may be None when history is too short
 cat_col     = "Category"
 region_col  = "Region"
 meta        = report_data.get("meta", {})
@@ -960,9 +960,9 @@ if active_scope_id != "all":
     growth_pill_class = "pill-blue"
     growth_arrow = "↑"
 else:
-    growth_label = insights.get("growth_label") or (f"↑ {mom_avg:.1f}% Avg MoM" if mom_avg >= 0 else f"↓ {mom_avg:.1f}% Avg MoM")
-    growth_arrow = insights.get("growth_arrow", "↑" if mom_avg >= 0 else "↓")
-    growth_pill_class = "pill-blue" if growth_arrow == "↑" else "pill-amber"
+    growth_label = insights.get("growth_label") or "Not enough history"
+    growth_arrow = insights.get("growth_arrow", "")
+    growth_pill_class = "pill-amber" if growth_arrow == "↓" else "pill-blue"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AI NARRATIVE GENERATION (On-Demand & Session Cached)
@@ -1426,7 +1426,7 @@ with tab_deck:
             "name": "KPI Matrix",
             "icon": "📌",
             "tag": "EXECUTIVE HIGHLIGHTS · SLIDE 02",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial & Operational Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_rev_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">↑ {mom_avg:.1f}% Avg MoM</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_profit_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{profit_str}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">{h(profit_pill)}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_margin_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{margin_str}</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">{h(margin_pill)}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_vol_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">{h(kpi_aov_lbl)}: {fmt(avg_order_val)}</div></div></div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: {h(kpi_rev_lbl)} closed at {fmt(total_revenue)} with healthy margin retention at {margin_str}, indicating disciplined capital allocation and commercial control.</div></div>''',
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial & Operational Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_rev_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">{h(insights.get("growth_label") or "Not enough history")}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_profit_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{profit_str}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">{h(profit_pill)}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_margin_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{margin_str}</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">{h(margin_pill)}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_vol_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">{h(kpi_aov_lbl)}: {fmt(avg_order_val)}</div></div></div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: {h(kpi_rev_lbl)} closed at {fmt(total_revenue)} with healthy margin retention at {margin_str}, indicating disciplined capital allocation and commercial control.</div></div>''',
             "notes": speaker_notes.get("slide_2", f"Slide 2 outlines our bottom-line numbers. Net profit reached {profit_str} on {fmt(total_revenue)} of gross revenue. With an average order value of {fmt(avg_order_val)}, our {margin_str} margins give us substantial headroom to invest in marketing.")
         },
         {

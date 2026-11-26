@@ -7,6 +7,7 @@ Returns a clean 'report_data' dictionary used by the chart and slide generators.
 import pandas as pd
 import numpy as np
 import re
+import datetime
 
 
 def parse_single_numeric(val):
@@ -855,38 +856,69 @@ def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict = None, ta
 
 
 def monthly_trend(df: pd.DataFrame, has_profit: bool = True) -> pd.DataFrame:
-    df["Month"] = df["Date"].dt.to_period("M")
+    """True calendar-month series (never quarterly/weekly), with gap months,
+    NaN-safe growth and partial first/last month detection."""
+    work = df[["Date", "Revenue"] + (["Profit"] if has_profit and "Profit" in df.columns else [])].copy()
+    work = work.dropna(subset=["Date"])
+    work["Month"] = work["Date"].dt.to_period("M")
     agg_dict = {"Revenue": ("Revenue", "sum"), "Orders": ("Revenue", "count")}
-    if has_profit and "Profit" in df.columns:
+    if has_profit and "Profit" in work.columns:
         agg_dict["Profit"] = ("Profit", "sum")
 
-    monthly = df.groupby("Month").agg(**agg_dict).reset_index()
-    if not has_profit or "Profit" not in monthly.columns:
+    monthly = work.groupby("Month").agg(**agg_dict)
+    if monthly.empty:
+        return pd.DataFrame(columns=["Month", "Revenue", "Orders", "Profit", "Month_Label", "MoM_Growth", "Is_Partial"])
+
+    full_idx = pd.period_range(start=monthly.index.min(), end=monthly.index.max(), freq="M")
+    monthly = monthly.reindex(full_idx, fill_value=0.0)
+    monthly.index.name = "Month"
+    monthly = monthly.reset_index()
+    monthly["Orders"] = monthly["Orders"].fillna(0).astype(int)
+    if "Profit" not in monthly.columns:
         monthly["Profit"] = 0.0
 
-    # Continuous monthly reindexing: Ensure every intermediate month exists
-    if not monthly.empty:
-        full_idx = pd.period_range(start=monthly["Month"].min(), end=monthly["Month"].max(), freq="M")
-        monthly = monthly.set_index("Month").reindex(full_idx, fill_value=0.0).reset_index()
-        monthly = monthly.rename(columns={"index": "Month"})
-        if "Orders" in monthly.columns:
-            monthly["Orders"] = monthly["Orders"].fillna(0).astype(int)
-
     monthly["Month_Label"] = monthly["Month"].dt.strftime("%b %Y")
-    monthly["MoM_Growth"]  = monthly["Revenue"].pct_change() * 100
+    growth = monthly["Revenue"].pct_change() * 100
+    monthly["MoM_Growth"] = growth.replace([np.inf, -np.inf], np.nan)
 
-    # Partial first/last month detection
-    min_date = df["Date"].min()
-    max_date = df["Date"].max()
+    min_date = work["Date"].min()
+    max_date = work["Date"].max()
     monthly["Is_Partial"] = False
-    if not monthly.empty and pd.notna(min_date) and pd.notna(max_date):
+    # Partial-month detection only makes sense for dense (daily-ish) data; one row per
+    # month dated the 1st would otherwise make every last month look "partial".
+    days_per_month = work.groupby("Month")["Date"].apply(lambda d: d.dt.normalize().nunique())
+    if len(monthly) >= 2 and float(days_per_month.median()) >= 4:
         if min_date.day > 10:
             monthly.loc[monthly.index[0], "Is_Partial"] = True
-        days_in_last = pd.Period(max_date, freq="D").days_in_month
-        if max_date.day < (days_in_last - 5):
+        if max_date.day < (pd.Period(max_date, freq="D").days_in_month - 5):
             monthly.loc[monthly.index[-1], "Is_Partial"] = True
-
     return monthly
+
+
+def compute_growth_metrics(monthly: pd.DataFrame) -> dict:
+    """Growth stats from a TRUE monthly series. Partial months are excluded from
+    growth maths; too little history yields honest 'not enough history' labels."""
+    out = {"cmgr": None, "avg_mom_growth": None, "growth_label": "Not enough history",
+           "growth_arrow": "", "partial_months": [], "n_full_months": 0}
+    if monthly is None or monthly.empty:
+        return out
+    partial = monthly["Is_Partial"].astype(bool) if "Is_Partial" in monthly else pd.Series(False, index=monthly.index)
+    out["partial_months"] = monthly.loc[partial, "Month_Label"].tolist()
+    full = monthly[~partial].copy()
+    out["n_full_months"] = len(full)
+    if len(full) < 3:
+        return out
+    g = full["Revenue"].pct_change() * 100
+    g = g.replace([np.inf, -np.inf], np.nan).dropna()
+    out["avg_mom_growth"] = round(float(g.mean()), 2) if not g.empty else None
+    first, last = float(full["Revenue"].iloc[0]), float(full["Revenue"].iloc[-1])
+    if first > 0 and last > 0:
+        cmgr = ((last / first) ** (1.0 / (len(full) - 1)) - 1.0) * 100.0
+        out["cmgr"] = round(cmgr, 2)
+        out["growth_arrow"] = "↑" if cmgr >= 0 else "↓"
+        sign = "+" if cmgr >= 0 else ""
+        out["growth_label"] = f"{out['growth_arrow']} {sign}{cmgr:.1f}% CMGR"
+    return out
 
 
 def detect_time_series_anomalies(monthly: pd.DataFrame, z_threshold: float = 2.0, mom_threshold: float = 40.0, currency_symbol: str = "$") -> list:
@@ -895,7 +927,7 @@ def detect_time_series_anomalies(monthly: pd.DataFrame, z_threshold: float = 2.0
     and Median Absolute Deviation (MAD) to prevent normal fluctuations from triggering alerts.
     Identifies significant surges and contractions with partial-month awareness.
     """
-    if monthly is None or len(monthly) < 3 or "Revenue" not in monthly.columns:
+    if monthly is None or len(monthly) < 6 or "Revenue" not in monthly.columns:
         return []
 
     rev = monthly["Revenue"]
@@ -917,12 +949,14 @@ def detect_time_series_anomalies(monthly: pd.DataFrame, z_threshold: float = 2.0
         mom = float(row["MoM_Growth"]) if "MoM_Growth" in row and pd.notna(row["MoM_Growth"]) else 0.0
         pct_diff = ((r_val - rev_median) / rev_median * 100.0) if rev_median != 0 else 0.0
         is_partial = bool(row.get("Is_Partial", False))
+        if is_partial:
+            continue  # incomplete months are never flagged as anomalies
 
         is_spike = (z_robust >= z_threshold) or (mom >= mom_threshold and z_robust >= 1.5)
         is_drop  = (z_robust <= -z_threshold) or (mom <= -mom_threshold and z_robust <= -1.5)
 
         if is_spike or is_drop:
-            anom_type = "Surge" if is_spike else "Contraction"
+            anom_type = "Surge" if is_spike else "Dip"
             partial_note = " (Partial month)" if is_partial else ""
             anomalies.append({
                 "period": str(row.get("Month_Label", str(row.get("Month", "Unknown")))),
@@ -934,7 +968,7 @@ def detect_time_series_anomalies(monthly: pd.DataFrame, z_threshold: float = 2.0
                 "mom_growth": round(float(mom), 1),
                 "is_partial": is_partial,
                 "severity": "High" if abs(z_robust) >= 3.0 else "Moderate",
-                "summary": f"{row.get('Month_Label', 'Month')}: {anom_type} of {currency_symbol}{r_val:,.0f} ({z_robust:+.2f}σ vs. median, {pct_diff:+.1f}%){partial_note}",
+                "summary": f"{row.get('Month_Label', 'Month')}: notable {anom_type.lower()} to {currency_symbol}{r_val:,.0f} ({z_robust:+.2f}σ vs. median, {pct_diff:+.1f}%){partial_note}",
             })
 
     return sorted(anomalies, key=lambda a: abs(a["z_score"]), reverse=True)
@@ -1455,37 +1489,31 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     worst_period = time_insights.get("worst_period", "N/A")
     best_month   = best_period
     worst_month  = worst_period
-    avg_mom_growth = monthly["MoM_Growth"].dropna().mean() if not monthly.empty else 0.0
+    monthly_series = monthly_trend(clean_df, has_profit=has_profit)
+    growth = compute_growth_metrics(monthly_series)
+    cmgr = growth["cmgr"]
+    avg_mom_growth = growth["avg_mom_growth"]
+    growth_arrow = growth["growth_arrow"]
+    growth_label = growth["growth_label"]
+    partial_months = growth["partial_months"]
 
-    # CMGR (Compound Monthly Growth Rate) computation
-    n_months = len(monthly)
-    if n_months >= 2:
-        rev_start = float(monthly.iloc[0]["Revenue"])
-        rev_end = float(monthly.iloc[-1]["Revenue"])
-        if rev_start > 0 and rev_end > 0:
-            cmgr = ((rev_end / rev_start) ** (1.0 / (n_months - 1)) - 1.0) * 100.0
-        else:
-            cmgr = float(monthly["MoM_Growth"].dropna().median()) if "MoM_Growth" in monthly and not monthly["MoM_Growth"].dropna().empty else 0.0
-    else:
-        cmgr = 0.0
-
-    growth_arrow = "↑" if cmgr >= 0 else "↓"
-    growth_sign = "+" if cmgr >= 0 else ""
-    growth_label = f"{growth_arrow} {growth_sign}{cmgr:.1f}% CMGR"
-
-    partial_months = monthly[monthly["Is_Partial"]]["Month_Label"].tolist() if "Is_Partial" in monthly else []
+    # best / worst from full (non-partial) true months when we have enough of them
+    full_months = monthly_series[~monthly_series["Is_Partial"]] if not monthly_series.empty else monthly_series
+    if len(full_months) >= 3:
+        best_month = str(full_months.loc[full_months["Revenue"].idxmax(), "Month_Label"])
+        worst_month = str(full_months.loc[full_months["Revenue"].idxmin(), "Month_Label"])
 
     top_cat     = category.iloc[0]["Category"] if not category.empty else "General"
     top_region  = region.iloc[0]["Region"] if not region.empty else "Global"
     top_channel = channels.iloc[0]["Channel"] if has_channel and not channels.empty else None
 
-    anomalies = detect_time_series_anomalies(monthly, currency_symbol=currency_symbol)
+    anomalies = detect_time_series_anomalies(monthly_series, currency_symbol=currency_symbol)
     has_anomalies = len(anomalies) > 0
     if has_anomalies:
         top_anom = anomalies[0]
-        anomaly_headline = f"{top_anom['period']} experienced a statistical {top_anom['type'].lower()} ({top_anom['z_score']:+.2f}σ vs. median, {top_anom['pct_diff_mean']:+.1f}%)."
+        anomaly_headline = f"{top_anom['period']} showed a notable {top_anom['type'].lower()} ({top_anom['pct_diff_mean']:+.1f}% vs. typical month)."
     else:
-        anomaly_headline = "Trajectory remained within expected historical bounds with no abnormal volatility."
+        anomaly_headline = "No unusual month-to-month swings detected." if len(monthly_series) >= 6 else "Not enough monthly history to assess anomalies."
 
     detected_year = int(clean_df["Date"].dt.year.mode()[0]) if "Date" in clean_df.columns and not clean_df["Date"].dropna().empty else datetime.date.today().year
 
@@ -1501,6 +1529,7 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
         "quarantined_df": quarantined_df,
         "kpis":           kpis,
         "monthly":        monthly,
+        "monthly_series": monthly_series,
         "category":       category,
         "region":         region,
         "top_products":   products,
@@ -1522,8 +1551,8 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
             "trend_title":       time_insights.get("trend_title", "Performance Trajectory"),
             "time_horizon":      horizon_info["horizon"],
             "horizon_desc":      horizon_info["desc"],
-            "avg_mom_growth":    round(avg_mom_growth, 2) if not pd.isna(avg_mom_growth) else 0.0,
-            "cmgr":              round(cmgr, 2),
+            "avg_mom_growth":    avg_mom_growth,
+            "cmgr":              cmgr,
             "growth_arrow":      growth_arrow,
             "growth_label":      growth_label,
             "partial_months":    partial_months,

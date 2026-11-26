@@ -118,7 +118,7 @@ def chart_monthly_trend(monthly: pd.DataFrame, chart_type: str = "Grouped Bars",
             _layout(fig, f"{display_title} (Revenue)")
         fig.update_yaxes(tickprefix=sym, tickformat=",.0f")
 
-    elif chart_type == "MoM Growth %":
+    elif "Growth" in str(chart_type):
         colors = [ACCENT if v >= 0 else DANGER for v in monthly["MoM_Growth"].fillna(0)]
         fig.add_trace(go.Bar(
             x=monthly["Month_Label"], y=monthly["MoM_Growth"],
