@@ -536,3 +536,79 @@ class TestChartFailsLoudly(unittest.TestCase):
             def write_image(self, *a, **k): raise RuntimeError("no kaleido")
         with self.assertRaises(chart_engine.ChartExportError):
             chart_engine._save_fig(Bad(), "x.png", output_dir="/tmp/claude-0/x")
+
+
+class TestMissingDataInEngine(unittest.TestCase):
+    def _df(self):
+        return pd.DataFrame({
+            "Date": pd.date_range("2024-01-01", periods=4, freq="D"),
+            "Revenue": [100.0, 100.0, 100.0, 1000.0],
+            "Cost": [60.0, 60.0, np.nan, np.nan],
+            "Profit": [40.0, 40.0, 40.0, np.nan],
+        })
+
+    def test_blank_cost_is_not_zero(self):
+        r = build_report_from_df(self._df(), mapping={"date": "Date", "revenue": "Revenue", "cost": "Cost", "profit": "Profit"}, derive_relations=False)
+        # Cost sum counts measured cost only (120), not 0-filled rows treated as free
+        self.assertEqual(r["kpis"]["total_cost"], 120.0)
+        self.assertTrue(r["df"]["Cost"].isna().sum() >= 1)
+
+    def test_margin_uses_matched_rows_only(self):
+        r = build_report_from_df(self._df(), mapping={"date": "Date", "revenue": "Revenue", "cost": "Cost", "profit": "Profit"}, derive_relations=False)
+        k = r["kpis"]
+        # Profit exists on rows 1-3 (rev 300, profit 120) -> 40%, NOT 120/1300
+        self.assertAlmostEqual(k["profit_margin"], 40.0, places=1)
+        self.assertEqual(k["profit_coverage_pct"], 75.0)
+        self.assertIn("75%", k["efficiency_status"])
+
+    def test_profit_derived_from_revenue_minus_cost(self):
+        df = self._df()
+        df.loc[0, "Profit"] = np.nan                # cost is present on row 0 -> derivable
+        r = build_report_from_df(df, mapping={"date": "Date", "revenue": "Revenue", "cost": "Cost", "profit": "Profit"})
+        # row 0 profit (100-60) and row 2 cost (100-40) both follow exactly from measured values
+        self.assertEqual(r["hygiene"]["values_derived"], 2)
+        self.assertEqual(float(r["df"]["Profit"].iloc[0]), 40.0)
+        self.assertEqual(float(r["df"]["Cost"].iloc[2]), 60.0)
+
+    def test_policy_fill_median_marks_estimates_and_logs(self):
+        r = build_report_from_df(self._df(), mapping={"date": "Date", "revenue": "Revenue", "cost": "Cost", "profit": "Profit"},
+                                 missing_policy={"Cost": {"method": "fill_median"}}, derive_relations=False)
+        self.assertEqual(r["hygiene"]["estimated_cells"]["Cost"], 2)
+        self.assertEqual(r["df"]["Cost"].isna().sum(), 0)
+        self.assertTrue(any("estimated" in l for l in r["hygiene"]["audit_log"]))
+
+    def test_policy_drop_rows_goes_to_quarantine(self):
+        r = build_report_from_df(self._df(), mapping={"date": "Date", "revenue": "Revenue", "cost": "Cost", "profit": "Profit"},
+                                 missing_policy={"Profit": {"method": "drop_rows"}}, derive_relations=False)
+        self.assertEqual(r["hygiene"]["clean_row_count"], 3)
+        self.assertGreaterEqual(r["hygiene"]["quarantined_rows_count"], 1)
+
+    def test_missing_profile_exposed_and_health_reflects_blanks(self):
+        r = build_report_from_df(self._df(), mapping={"date": "Date", "revenue": "Revenue", "cost": "Cost", "profit": "Profit"}, derive_relations=False)
+        prof = {x["column"]: x for x in r["hygiene"]["missing_profile"]}
+        self.assertEqual(prof["Cost"]["missing_pct"], 50.0)
+        self.assertLess(r["hygiene"]["health_score"], 100)
+
+    def test_marketing_cpa_uses_rows_with_conversions(self):
+        df = pd.DataFrame({
+            "Date": pd.date_range("2024-01-01", periods=4, freq="D"),
+            "Spend": [100.0, 100.0, 100.0, 900.0], "Conv": [10.0, 10.0, np.nan, np.nan],
+        })
+        r = build_report_from_df(df, mapping={"date": "Date", "revenue": "Spend", "conversions": "Conv"},
+                                 report_mode="Marketing & Ad Campaign ROI")
+        self.assertEqual(r["kpis"]["cpa"], 10.0)   # 200 spend / 20 conversions, NOT 1200/20
+
+    def test_operations_variance_like_for_like(self):
+        df = pd.DataFrame({
+            "Date": pd.date_range("2024-01-01", periods=3, freq="D"),
+            "Budget": [100.0, 100.0, 5000.0], "Actual": [90.0, 90.0, np.nan],
+        })
+        r = build_report_from_df(df, mapping={"date": "Date", "revenue": "Budget", "profit": "Actual"},
+                                 report_mode="Operations & Expense Tracker")
+        self.assertEqual(r["kpis"]["budget_variance"], -20.0)      # 180 actual vs 200 budget on the same rows
+        self.assertEqual(r["kpis"]["budget_utilization"], 90.0)
+
+    def test_all_profit_blank_hides_profit_metrics(self):
+        df = pd.DataFrame({"Date": pd.date_range("2024-01-01", periods=3), "Revenue": [1.0, 2.0, 3.0], "Profit": [np.nan] * 3})
+        r = build_report_from_df(df, mapping={"date": "Date", "revenue": "Revenue", "profit": "Profit"})
+        self.assertFalse(r["kpis"]["has_profit"])

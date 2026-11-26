@@ -203,22 +203,35 @@ def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "
     has_units = "Quantity" in df.columns
     has_returns = "Returned" in df.columns
     total_orders = len(df)
-    total_units = int(df["Quantity"].sum()) if has_units else total_orders
+    total_units = int(df["Quantity"].sum(skipna=True)) if has_units else total_orders
+    units_coverage_pct = round(float(df["Quantity"].notna().mean() * 100), 1) if has_units and total_orders else 100.0
+    profit_coverage_pct = round(float(df["Profit"].notna().mean() * 100), 1) if (has_profit and "Profit" in df.columns and total_orders) else 100.0
+    cov_note = f" · from {profit_coverage_pct:.0f}% of rows" if profit_coverage_pct < 100.0 else ""
     return_rate = round((df["Returned"].sum() / total_orders * 100), 2) if has_returns and total_orders else 0.0
 
     if "Marketing" in mode:
         # Spend = Revenue column. Conversions and Return are separate, explicit columns.
         total_spend = float(df["Revenue"].sum())
         has_conv = "Conversions" in df.columns
-        conversions = float(df["Conversions"].sum()) if has_conv else None
+        conversions = float(df["Conversions"].sum(skipna=True)) if has_conv else None
         has_return = bool(has_profit and "Profit" in df.columns)
-        total_return = float(df["Profit"].sum()) if has_return else None
-        cpa = round(total_spend / conversions, 2) if (conversions and conversions > 0) else None
-        roas = round(total_return / total_spend, 2) if (has_return and total_spend > 0) else None
+        total_return = float(df["Profit"].sum(skipna=True)) if has_return else None
+        # like-for-like: only rows where BOTH sides of the ratio exist
+        if has_conv:
+            spend_m = float(df.loc[df["Conversions"].notna(), "Revenue"].sum())
+            cpa = round(spend_m / conversions, 2) if (conversions and conversions > 0) else None
+        else:
+            cpa = None
+        if has_return:
+            m_ = df["Profit"].notna()
+            spend_r = float(df.loc[m_, "Revenue"].sum())
+            roas = round(float(df.loc[m_, "Profit"].sum()) / spend_r, 2) if spend_r > 0 else None
+        else:
+            roas = None
 
         if roas is not None:
             eff_name, eff_display = "ROAS", f"{roas:.2f}x"
-            eff_status = "Target: >2.0x" if roas >= 2.0 else "Below 2.0x Target"
+            eff_status = ("Target: >2.0x" if roas >= 2.0 else "Below 2.0x Target") + cov_note
             eff_class = "pill-purple" if roas >= 2.0 else "pill-amber"
         else:
             eff_name, eff_display = "ROAS", "N/A"
@@ -244,17 +257,26 @@ def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "
             "efficiency_pill_class": eff_class,
             "roas": roas,
             "cpa": cpa,
+            "profit_coverage_pct": profit_coverage_pct,
+            "units_coverage_pct": units_coverage_pct,
+            "conversions_coverage_pct": round(float(df["Conversions"].notna().mean() * 100), 1) if has_conv and total_orders else 100.0,
         }
 
     elif "Operations" in mode:
         # Budget = Revenue column; Actual = Profit column (mapped from "Actual Expenses").
         budget = float(df["Revenue"].sum())
         has_actual = bool(has_profit and "Profit" in df.columns)
-        actual = float(df["Profit"].sum()) if has_actual else None
+        if has_actual:
+            m_ = df["Profit"].notna()
+            actual = float(df.loc[m_, "Profit"].sum())
+            budget_m = float(df.loc[m_, "Revenue"].sum())      # budget for the same rows as the actuals
+            n_actual = int(m_.sum())
+        else:
+            actual = None
         if actual is not None:
-            variance = round(actual - budget, 2)  # positive = overspend
-            utilization_pct = round(actual / budget * 100, 1) if budget > 0 else None
-            cost_per_item = round(actual / total_orders, 2) if total_orders > 0 else None
+            variance = round(actual - budget_m, 2)  # positive = overspend, like-for-like rows
+            utilization_pct = round(actual / budget_m * 100, 1) if budget_m > 0 else None
+            cost_per_item = round(actual / n_actual, 2) if n_actual > 0 else None
         else:
             variance = utilization_pct = cost_per_item = None
 
@@ -291,6 +313,8 @@ def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "
             "efficiency_pill_class": eff_class,
             "budget_variance": variance,
             "budget_utilization": utilization_pct,
+            "profit_coverage_pct": profit_coverage_pct,
+            "units_coverage_pct": units_coverage_pct,
         }
 
     else:
@@ -299,11 +323,13 @@ def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "
         avg_order_val = round((total_revenue / total_orders), 2) if total_orders else 0.0
 
         if has_profit and "Profit" in df.columns:
-            total_profit = float(df["Profit"].sum())
-            total_cost = float(df["Cost"].sum()) if "Cost" in df.columns else 0.0
-            profit_margin = round((total_profit / total_revenue * 100), 2) if total_revenue else 0.0
+            m_ = df["Profit"].notna()
+            total_profit = float(df.loc[m_, "Profit"].sum())
+            total_cost = float(df["Cost"].sum(skipna=True)) if "Cost" in df.columns else 0.0
+            rev_matched = float(df.loc[m_, "Revenue"].sum())      # margin only over rows that HAVE a profit figure
+            profit_margin = round((total_profit / rev_matched * 100), 2) if rev_matched else 0.0
             eff_display = f"{profit_margin:.1f}%"
-            eff_status = "Target: >35.0%" if profit_margin >= 35.0 else "Below 35% Target"
+            eff_status = ("Target: >35.0%" if profit_margin >= 35.0 else "Below 35% Target") + cov_note
             eff_class = "pill-purple" if profit_margin >= 35.0 else "pill-amber"
         else:
             total_profit = None
@@ -329,6 +355,8 @@ def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "
             "efficiency_display": eff_display,
             "efficiency_status": eff_status,
             "efficiency_pill_class": eff_class,
+            "profit_coverage_pct": profit_coverage_pct,
+            "units_coverage_pct": units_coverage_pct,
         }
 
 
@@ -1013,6 +1041,8 @@ def category_breakdown(df: pd.DataFrame, has_profit: bool = True, max_categories
     agg_dict = {"Revenue": ("Revenue", "sum"), "Orders": ("Revenue", "count")}
     if has_profit and "Profit" in df.columns:
         agg_dict["Profit"] = ("Profit", "sum")
+        df = df.assign(_Rev_matched=df["Revenue"].where(df["Profit"].notna(), 0.0))
+        agg_dict["_Rev_matched"] = ("_Rev_matched", "sum")
 
     cat = df.groupby("Category").agg(**agg_dict).reset_index()
     if not has_profit or "Profit" not in cat.columns:
@@ -1027,19 +1057,23 @@ def category_breakdown(df: pd.DataFrame, has_profit: bool = True, max_categories
         other_rev = float(other_slice["Revenue"].sum())
         other_orders = int(other_slice["Orders"].sum())
         other_profit = float(other_slice["Profit"].sum()) if "Profit" in other_slice.columns else 0.0
+        other_matched = float(other_slice["_Rev_matched"].sum()) if "_Rev_matched" in other_slice.columns else other_rev
 
         other_row = pd.DataFrame([{
             "Category": f"Other ({len(other_slice)} items)",
             "Revenue": other_rev,
             "Orders": other_orders,
             "Profit": other_profit,
+            **({"_Rev_matched": other_matched} if "_Rev_matched" in cat.columns else {}),
         }])
         cat = pd.concat([top_slice, other_row], ignore_index=True)
     else:
         cat = cat.sort_values("Revenue", ascending=False)
 
     if has_profit and "Profit" in cat.columns:
-        cat["Margin_%"] = (cat["Profit"] / cat["Revenue"].replace(0, np.nan) * 100).fillna(0.0).round(2)
+        denom = cat["_Rev_matched"] if "_Rev_matched" in cat.columns else cat["Revenue"]
+        cat["Margin_%"] = (cat["Profit"] / denom.replace(0, np.nan) * 100).fillna(0.0).round(2)
+        cat = cat.drop(columns=["_Rev_matched"], errors="ignore")
     else:
         cat["Margin_%"] = 0.0
 
@@ -1269,7 +1303,8 @@ def infer_mapping(data, report_mode: str = "Sales & Retail Performance") -> dict
 
 
 def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: str = "Sales & Retail Performance", currency_symbol: str = "$",
-                         drop_exact_duplicates: bool = False, id_column: str = None, source_notes: list = None, **kwargs) -> dict:
+                         drop_exact_duplicates: bool = False, id_column: str = None, source_notes: list = None,
+                         missing_policy: dict = None, derive_relations: bool = True, **kwargs) -> dict:
     """
     Core deterministic data engine. Takes any raw or mapped DataFrame,
     normalizes columns, strips currency characters, deduplicates, filters summary rows,
@@ -1434,29 +1469,36 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     else:
         raise ValueError("No Revenue / Spend / Budget column is mapped.")
 
+    from data_quality import apply_policies, derive_missing, missing_profile
+    is_sales = "Sales" in (report_mode or "Sales")
+    blank_counts = {}
+
     def _opt_numeric(col, label):
-        nonlocal symbols_cleaned_total, nulls_imputed_total
+        """Parse an optional numeric column. Blanks STAY blank (NaN): a missing Cost is not a Cost of 0."""
+        nonlocal symbols_cleaned_total
         cleaned, fmt_cnt, bad = sanitize_numeric_with_mask(clean_df[col])
         symbols_cleaned_total += fmt_cnt
         if fmt_cnt > 0:
             audit_trail.append(f"Standardized {fmt_cnt} formatted value(s) in {label}")
         n_bad = int(bad.sum())
         if n_bad > 0:
-            nulls_imputed_total += n_bad
-            audit_trail.append(f"Treated {n_bad} missing/invalid {label} value(s) as 0 (optional column; rows kept)")
-        return cleaned.fillna(0.0)
+            blank_counts[col] = n_bad
+        return cleaned
 
-    if has_mapped_cost and "Cost" in clean_df.columns:
+    cost_mapped = bool(has_mapped_cost and "Cost" in clean_df.columns)
+    profit_mapped = bool(has_mapped_profit and "Profit" in clean_df.columns)
+
+    if cost_mapped:
         clean_df["Cost"] = _opt_numeric("Cost", "Cost")
     else:
         clean_df["Cost"] = 0.0
         synthetic_columns.append("Cost")
 
-    if has_mapped_profit and "Profit" in clean_df.columns:
+    if profit_mapped:
         clean_df["Profit"] = _opt_numeric("Profit", "Profit/Return/Actual")
         has_profit = True
-    elif has_mapped_cost and "Cost" in clean_df.columns and "Sales" in (report_mode or "Sales"):
-        clean_df["Profit"] = clean_df["Revenue"] - clean_df["Cost"]
+    elif cost_mapped and is_sales:
+        clean_df["Profit"] = clean_df["Revenue"] - clean_df["Cost"]   # stays NaN where Cost is blank
         has_profit = True
         audit_trail.append("Derived Profit as Revenue - Cost (no Profit column mapped)")
     else:
@@ -1470,6 +1512,48 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     # Quantity: kept exactly as provided (no clipping, no invented default).
     if "Quantity" in clean_df.columns:
         clean_df["Quantity"] = _opt_numeric("Quantity", "Quantity")
+
+    # Exact relational fills (profit = revenue - cost etc.) come BEFORE any statistical fill.
+    values_derived_total = 0
+    identity_report = []
+    if is_sales and cost_mapped and profit_mapped and derive_relations:
+        dres = derive_missing(clean_df, {"revenue": "Revenue", "cost": "Cost", "profit": "Profit"})
+        clean_df = dres.df
+        identity_report = dres.identity_report
+        values_derived_total = int(sum(m.sum() for m in dres.derived_masks.values()))
+        audit_trail.extend(dres.log)
+        for item in identity_report:
+            if item["violations"]:
+                audit_trail.append(f"Check: {item['violations']} of {item['checked_rows']} row(s) break '{item['relation']}' (possible data error)")
+
+    # Profile what is still blank in the columns the user may want to handle
+    handle_cols = [c for c in ("Cost", "Profit", "Quantity", "Conversions") if c in clean_df.columns and c not in synthetic_columns]
+    dq_profile = missing_profile(clean_df, handle_cols, "Date") if handle_cols else pd.DataFrame()
+    for _, r_ in dq_profile.iterrows():
+        if r_["missing_n"] > 0:
+            audit_trail.append(f"'{r_['column']}' is blank in {r_['missing_n']} row(s) ({r_['missing_pct']}%) - kept blank and excluded from calculations that need it")
+
+    # User-chosen handling per column (default: keep blank)
+    estimated_cells = {}
+    if missing_policy:
+        usable = {c: p for c, p in missing_policy.items() if c in handle_cols}
+        pres = apply_policies(clean_df, usable)
+        if pres.rows_dropped:
+            dropped_mask = ~clean_df.index.isin(pres.df.index)
+            dropped_rows = clean_df[dropped_mask].copy()
+            dropped_rows["quarantine_reason"] = "Removed at your request (missing value in a column you chose to drop on)"
+            quarantine_records.append(dropped_rows)
+        clean_df = pres.df
+        audit_trail.extend(pres.log)
+        estimated_cells = {c: int(m.sum()) for c, m in pres.filled_masks.items()}
+        nulls_imputed_total += sum(estimated_cells.values())
+
+    if has_profit and clean_df["Profit"].notna().sum() == 0:
+        has_profit = False
+        clean_df["Profit"] = 0.0
+        if "Profit" not in synthetic_columns:
+            synthetic_columns.append("Profit")
+        audit_trail.append("Profit has no measured values, so profit-based metrics are not shown")
 
     clean_row_count = len(clean_df)
     quarantined_total = raw_row_count - clean_row_count
@@ -1517,14 +1601,17 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
 
     # Honest health score: driven by rows lost and values assumed, not by cosmetic fixes.
     quarantined_pct = (len(quarantined_df) / raw_row_count * 100) if raw_row_count else 0.0
-    penalty = round(quarantined_pct) + min(10, nulls_imputed_total) + (5 if "Date" in synthetic_columns else 0)
+    real_opt = [c for c in handle_cols if c in clean_df.columns]
+    max_blank_pct = max([float(clean_df[c].isna().mean() * 100) for c in real_opt], default=0.0)
+    penalty = round(quarantined_pct) + min(10, nulls_imputed_total) + min(10, round(max_blank_pct / 5)) + (5 if "Date" in synthetic_columns else 0)
     health_score = int(max(0, 100 - penalty))
-    if len(quarantined_df) == 0 and nulls_imputed_total == 0 and "Date" not in synthetic_columns:
+    if len(quarantined_df) == 0 and nulls_imputed_total == 0 and max_blank_pct == 0 and "Date" not in synthetic_columns:
         health_status = "No issues found" if symbols_cleaned_total == 0 else f"Clean ({symbols_cleaned_total} formatted values standardized)"
     else:
         bits = []
         if len(quarantined_df): bits.append(f"{len(quarantined_df)} row(s) quarantined")
-        if nulls_imputed_total: bits.append(f"{nulls_imputed_total} value(s) assumed 0")
+        if nulls_imputed_total: bits.append(f"{nulls_imputed_total} value(s) estimated")
+        if max_blank_pct > 0: bits.append(f"up to {max_blank_pct:.0f}% blank in optional columns")
         if "Date" in synthetic_columns: bits.append("placeholder timeline used")
         health_status = "Review: " + ", ".join(bits)
 
@@ -1540,6 +1627,10 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
         "summary_rows_removed": summary_count,
         "quarantined_rows_count": len(quarantined_df),
         "synthetic_columns": synthetic_columns,
+        "values_derived": values_derived_total,
+        "estimated_cells": estimated_cells,
+        "missing_profile": dq_profile.to_dict("records") if len(dq_profile) else [],
+        "identity_report": identity_report,
         "date_range": date_range_str,
         "health_score": health_score,
         "health_status": health_status,
