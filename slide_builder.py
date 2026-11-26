@@ -188,7 +188,7 @@ def slide_kpis(prs, kpis, insights, meta: dict = None, note: str = None, accent_
     has_units = kpis.get("has_units", False)
 
     cards_r2_data = [
-        (aov_label, f"{sym}{kpis['avg_order_value']:,.2f}", primary_kpi_color)
+        (aov_label, (f"{sym}{kpis['avg_order_value']:,.2f}" if kpis.get("avg_order_value") is not None else "N/A"), primary_kpi_color)
     ]
     if has_returns:
         cards_r2_data.append(("Return Rate", f"{kpis['return_rate']}%", C_AMBER))
@@ -214,13 +214,15 @@ def slide_kpis(prs, kpis, insights, meta: dict = None, note: str = None, accent_
 
     bullets = [
         f"📈  Best performing period: {insights.get('best_month', 'N/A')}",
-        f"🏷️   Top vertical: {insights.get('top_category', 'N/A')}  |  Primary region: {insights.get('top_region', 'N/A')}",
+        f"🏷️   Top vertical ({insights.get('top_basis', 'highest revenue')}): {insights.get('top_category', 'N/A')}  |  Top region: {insights.get('top_region', 'N/A')}",
     ]
+    if insights.get("anomaly_headline") and insights.get("has_anomalies"):
+        bullets.append(f"⚠️  {insights['anomaly_headline']}")
     if insights.get("top_channel") and insights.get("top_channel") != "N/A":
         bullets.append(f"🛒  Dominant channel: {insights['top_channel']}")
 
     for i, b in enumerate(bullets):
-        _add_textbox(slide, b, 0.6, 4.75 + i * 0.65, 12.4, 0.5, size=12, color=C_DARK)
+        _add_textbox(slide, b, 0.6, 4.7 + i * 0.5, 12.4, 0.45, size=12, color=C_DARK)
 
     if note:
         try:
@@ -289,10 +291,21 @@ def slide_category_products(prs, chart_cat, chart_prod, insights, title: str = N
     slide.shapes.add_picture(chart_cat,  Inches(0.25), Inches(1.2), width=Inches(6.2))
     slide.shapes.add_picture(chart_prod, Inches(6.85), Inches(1.2), width=Inches(6.2))
 
+    # Key takeaways panel under the charts (fills the lower half of the slide)
+    _add_rect(slide, 0.3, 4.65, 12.7, 2.5, C_LIGHT)
+    _add_textbox(slide, "🔍  Key Takeaways", 0.5, 4.72, 12, 0.45, size=13, bold=True, color=C_DARK)
+    basis = insights.get("top_basis", "highest revenue")
+    points = [
+        f"Top category by {basis}: {insights.get('top_category', 'N/A')}",
+        f"Top region by {basis}: {insights.get('top_region', 'N/A')}",
+        f"Strongest period: {insights.get('best_month', 'N/A')}  |  Softest period: {insights.get('worst_month', 'N/A')}",
+    ]
+    for i, pt in enumerate(points):
+        _add_textbox(slide, "•  " + pt, 0.6, 5.25 + i * 0.55, 12.2, 0.5, size=12, color=C_DARK)
+
     # Notes are kept strictly in PowerPoint's native Presenter Notes pane
     if not note:
-        note = (f"{insights.get('top_category', 'Top category')} leads portfolio volume. "
-                f"Focus on expanding high-margin offerings while reviewing cost structures.")
+        note = (f"{insights.get('top_category', 'Top category')} has the {insights.get('top_basis', 'highest revenue')} among categories.")
     if note:
         try:
             slide.notes_slide.notes_text_frame.text = str(note)
@@ -323,10 +336,10 @@ def slide_region_recommendations(prs, chart_region, insights, title: str = None,
 
     if not recs:
         recs = [
-            ("📍  Top Region",    f"{insights.get('top_region', 'Primary region')} leads in volume — prioritize this territory for scaling."),
-            ("🛒  Best Channel",  f"{insights.get('top_channel', 'Primary channel')} is the dominant channel. Optimize conversion touchpoints here."),
-            ("📈  Growth Driver", f"Focus on high-impact initiatives during peak cycles ({insights.get('best_month', 'peak period')})."),
-            ("⚠️   Weak Period",  f"Activity softens in {insights.get('worst_month', 'trough period')}. Deploy bridge initiatives during this window."),
+            ("📍  Top Region",    f"{insights.get('top_region', 'Primary region')} has the {insights.get('top_basis', 'highest revenue')} — review it first when planning."),
+            ("📈  Peak Period",   f"{insights.get('best_month', 'The peak period')} was the strongest period in this data."),
+            ("⚠️   Weak Period",  f"{insights.get('worst_month', 'The weakest period')} was the softest period — check what drove it."),
+            ("🧭  Next Step",     "Compare these figures with your targets before deciding where to invest."),
         ]
     for i, (title_item, body) in enumerate(recs[:4]):
         top = 1.2 + i * 1.5
@@ -336,8 +349,7 @@ def slide_region_recommendations(prs, chart_region, insights, title: str = None,
 
     if not note:
         note = (f"This slide provides regional distribution and actionable recommendations. "
-                f"Top performing region is {insights.get('top_region', 'N/A')} with dominant channel {insights.get('top_channel', 'N/A')}. "
-                f"We recommend prioritizing high-margin categories and scaling into top regions.")
+                f"Top region by {insights.get('top_basis', 'revenue')} is {insights.get('top_region', 'N/A')}.")
     if note:
         try:
             slide.notes_slide.notes_text_frame.text = str(note)

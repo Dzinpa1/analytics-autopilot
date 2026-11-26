@@ -587,43 +587,26 @@ if not uploaded_file and not use_sample:
 # ─────────────────────────────────────────────────────────────────────────────
 # LOAD & PREPARE DATA
 # ─────────────────────────────────────────────────────────────────────────────
-def load_uploaded_dataset(file, sheet=0) -> pd.DataFrame:
-    """
-    Robust reader for uploaded CSV and Excel files.
-    Handles encoding fallbacks (utf-8-sig -> utf-8 -> cp1252 -> latin1),
-    automatic delimiter sniffing for semicolon/comma/tab, and multi-sheet Excel files.
-    """
-    filename = file.name.lower()
-    if filename.endswith(".csv"):
-        encodings = ["utf-8-sig", "utf-8", "cp1252", "latin1"]
-        for enc in encodings:
-            try:
-                file.seek(0)
-                return pd.read_csv(file, sep=None, engine="python", encoding=enc)
-            except Exception:
-                continue
-        file.seek(0)
-        return pd.read_csv(file, encoding="latin1")
-    else:
-        file.seek(0)
-        return pd.read_excel(file, sheet_name=sheet)
+@st.cache_data(show_spinner=False, max_entries=8)
+def load_uploaded_dataset(name: str, file_bytes: bytes, sheet=0):
+    """Parse once per (file, sheet); widget clicks no longer re-read the upload."""
+    from io_utils import read_tabular
+    return read_tabular(name, file_bytes, sheet)
 
 with st.spinner("Processing data engine..."):
     if use_sample or uploaded_file is None:
         from generate_data import generate_sales_data
         df = generate_sales_data()
+        source_notes = []
     else:
         try:
-            df = load_uploaded_dataset(uploaded_file, sheet=selected_sheet)
+            df, source_notes = load_uploaded_dataset(uploaded_file.name, uploaded_file.getvalue(), selected_sheet)
         except Exception as e:
             st.error(f"⚠️ **Could not read file:** {str(e)}\n\nPlease ensure your file is a valid CSV or Excel spreadsheet.")
             st.stop()
 
 cols = df.columns.tolist()
 
-import importlib
-import analysis_engine
-importlib.reload(analysis_engine)
 from analysis_engine import infer_mapping
 
 inferred_cols = infer_mapping(df, report_mode=report_mode)
@@ -674,11 +657,37 @@ with st.sidebar:
         MAX_AI_CALLS = 10
 
         from ai_narrator import get_gemini_api_key
-        active_api_key = (gemini_api_key_input.strip() if 'gemini_api_key_input' in locals() and gemini_api_key_input else None) or get_gemini_api_key()
+        # SERVER key safety: set REQUIRE_USER_KEY=1 to force visitors to bring their own key.
+        # Otherwise the shared server key is capped process-wide per day (refresh cannot reset it).
+        REQUIRE_USER_KEY = os.environ.get("REQUIRE_USER_KEY", "").strip().lower() in ("1", "true", "yes")
+        MAX_SERVER_AI_CALLS_PER_DAY = int(os.environ.get("MAX_SERVER_AI_CALLS_PER_DAY", "50"))
+
+        @st.cache_resource
+        def _server_ai_budget():
+            return {"day": None, "used": 0}
+
+        def _server_budget_left() -> int:
+            b = _server_ai_budget()
+            today = datetime.date.today().isoformat()
+            if b["day"] != today:
+                b["day"], b["used"] = today, 0
+            return MAX_SERVER_AI_CALLS_PER_DAY - b["used"]
+
+        user_key = gemini_api_key_input.strip() if gemini_api_key_input else ""
+        using_server_key = False
+        if user_key:
+            active_api_key = user_key
+        elif not REQUIRE_USER_KEY and _server_budget_left() > 0:
+            active_api_key = get_gemini_api_key()
+            using_server_key = bool(active_api_key)
+        else:
+            active_api_key = None
+            if REQUIRE_USER_KEY or get_gemini_api_key():
+                st.caption("Enter your own Gemini API key to enable AI commentary." if REQUIRE_USER_KEY else "Shared AI quota used up for today. Enter your own key to continue.")
 
         if active_api_key:
             st.caption(f"✦ Session AI Calls: {st.session_state.ai_calls_count}/{MAX_AI_CALLS}")
-            gen_ai_clicked = st.button("✨ Generate AI Commentary", help="Generate customized LLM-powered narrative & speaker notes using your Gemini key.", use_container_width=True)
+            gen_ai_clicked = st.button("✨ Generate AI Commentary", help="Generate customized LLM-powered narrative & speaker notes.", use_container_width=True)
         else:
             gen_ai_clicked = False
             st.caption(f"✦ Using built-in deterministic {report_mode} executive commentary.")
@@ -715,14 +724,14 @@ data_hash = hashlib.md5(pd.util.hash_pandas_object(df, index=True).values).hexdi
 data_signature = f"{data_hash}_{ENGINE_VERSION}"
 
 @st.cache_data(show_spinner=False)
-def get_cached_report(_df, mapping, mode, curr, data_signature, drop_dupes=False, id_col=None):
+def get_cached_report(_df, mapping, mode, curr, data_signature, drop_dupes=False, id_col=None, notes=()):
     return build_report_from_df(_df, mapping=mapping, report_mode=mode, currency_symbol=curr,
-                                drop_exact_duplicates=drop_dupes, id_column=id_col)
+                                drop_exact_duplicates=drop_dupes, id_column=id_col, source_notes=list(notes))
 
 from export_utils import generate_cleaned_workbook
 
 try:
-    report_data = get_cached_report(df, col_mapping, report_mode, curr_sym, data_signature, drop_dupes_opt, id_col_opt)
+    report_data = get_cached_report(df, col_mapping, report_mode, curr_sym, data_signature, drop_dupes_opt, id_col_opt, tuple(source_notes))
 except Exception as e:
     st.error(f"⚠️ **Could not process this spreadsheet:** {str(e)}\n\nPlease ensure your Date and Revenue columns contain valid values.")
     st.stop()
@@ -767,7 +776,7 @@ anomalies = insights.get("anomalies", [])
 with st.sidebar:
     with st.expander("🛡️ Data Hygiene & Audit Trail", expanded=False):
         score = hygiene.get('health_score', 100)
-        status = hygiene.get('health_status', 'Certified Clean')
+        status = hygiene.get('health_status', 'No issues found')
         status_color = "#34D399" if score >= 98 else "#FBBF24"
         retention = hygiene.get('rows_retained_pct', 100.0)
         dropped_count = hygiene.get('dropped_rows_count', 0)
@@ -878,9 +887,7 @@ else:
 # ─────────────────────────────────────────────────────────────────────────────
 # AI NARRATIVE GENERATION (On-Demand & Session Cached)
 # ─────────────────────────────────────────────────────────────────────────────
-import importlib
 import ai_narrator
-importlib.reload(ai_narrator)
 from ai_narrator import generate_narrative, get_deterministic_fallback
 
 if "cached_ai_narratives" not in st.session_state:
@@ -899,6 +906,8 @@ if 'gen_ai_clicked' in locals() and gen_ai_clicked and active_api_key:
     else:
         with st.spinner(f"🧠 Synthesizing executive narrative with Gemini ({report_mode})..."):
             st.session_state.ai_calls_count += 1
+            if using_server_key:
+                _server_ai_budget()["used"] += 1
             ai_result = generate_narrative(
                 report_data, report_title=report_title, report_mode=report_mode,
                 api_key=active_api_key, currency_symbol=curr_sym
@@ -1311,6 +1320,8 @@ with tab_deck:
     recs_grid_html = ""
     for r in recs[:4]:
         accent = r.get("accent", accent_tint)
+        if not re.fullmatch(r"#[0-9A-Fa-f]{6}", str(accent or "")):
+            accent = accent_tint
         recs_grid_html += f'''<div style="background:#111827;border:1px solid #1F2937;border-left:3px solid {accent};border-radius:10px;padding:16px;"><div style="font-size:11px;font-weight:700;color:{accent};text-transform:uppercase;">{h(r.get('tag', ''))}</div><div style="font-size:13px;color:#CBD5E1;margin-top:6px;line-height:1.5;"><strong>{h(r.get('title', ''))}:</strong> {h(r.get('body', ''))}</div></div>'''
 
     best_period       = insights.get("best_period", best_month)
@@ -1336,7 +1347,7 @@ with tab_deck:
             "name": "KPI Matrix",
             "icon": "📌",
             "tag": "EXECUTIVE HIGHLIGHTS · SLIDE 02",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial & Operational Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_rev_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">{h(insights.get("growth_label") or "Not enough history")}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_profit_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{profit_str}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">{h(profit_pill)}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_margin_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{margin_str}</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">{h(margin_pill)}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_vol_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">{h(kpi_aov_lbl)}: {fmt(avg_order_val)}</div></div></div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: {h(kpi_rev_lbl)} closed at {fmt(total_revenue)} with healthy margin retention at {margin_str}, indicating disciplined capital allocation and commercial control.</div></div>''',
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:18px;">Executive Financial & Operational Summary</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;"><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_rev_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#F8FAFC;margin-top:6px;">{fmt(total_revenue)}</div><div style="font-size:11px;color:#38BDF8;margin-top:4px;">{h(insights.get("growth_label") or "Not enough history")}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_profit_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#34D399;margin-top:6px;">{profit_str}</div><div style="font-size:11px;color:#34D399;margin-top:4px;">{h(profit_pill)}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_margin_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#C084FC;margin-top:6px;">{margin_str}</div><div style="font-size:11px;color:#C084FC;margin-top:4px;">{h(margin_pill)}</div></div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:18px;"><div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{h(kpi_vol_lbl.upper())}</div><div style="font-size:26px;font-weight:800;color:#FBBF24;margin-top:6px;">{total_orders:,}</div><div style="font-size:11px;color:#FBBF24;margin-top:4px;">{h(kpi_aov_lbl)}: {fmt(avg_order_val)}</div></div></div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #6366F1;border-radius:8px;padding:12px 16px;font-size:13px;color:#94A3B8;">● Key Takeaway: {h(kpi_rev_lbl)} closed at {fmt(total_revenue)} with {h(kpi_margin_lbl)} at {margin_str}.</div></div>''',
             "notes": speaker_notes.get("slide_2", f"Slide 2 outlines our bottom-line numbers. Net profit reached {profit_str} on {fmt(total_revenue)} of gross revenue. With an average order value of {fmt(avg_order_val)}, our {margin_str} margins give us substantial headroom to invest in marketing.")
         },
         {
@@ -1390,7 +1401,7 @@ with tab_deck:
                 🎤 Speaker Notes
             </div>
             <div style="font-size:13px;color:#CBD5E1;line-height:1.6;font-style:italic;">
-                "{curr_s["notes"]}"
+                "{h(curr_s["notes"])}"
             </div>
         </div>
     </div>
@@ -1517,10 +1528,11 @@ with tab_deck:
                         with open(logo_path, "wb") as f:
                             f.write(logo_file.getbuffer())
 
-                    chart_paths = generate_all_charts(presentation_report, config=chart_config, output_dir=tmp_dir)
-                    export_warns = chart_engine.get_export_warnings()
-                    if export_warns:
-                        st.warning(f"⚠️ Chart export notice: {export_warns[0]}")
+                    try:
+                        chart_paths = generate_all_charts(presentation_report, config=chart_config, output_dir=tmp_dir)
+                    except chart_engine.ChartExportError as chart_err:
+                        st.error(f"⚠️ The deck was NOT built because a chart image could not be rendered. {chart_err}")
+                        st.stop()
 
                     pptx_path   = build_presentation(
                         presentation_report, chart_paths,

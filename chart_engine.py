@@ -20,12 +20,9 @@ PALETTE   = [PRIMARY, SECONDARY, ACCENT, WARN, DANGER,
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
 
-LAST_EXPORT_WARNINGS = []
-
-
-def get_export_warnings() -> list:
-    """Returns list of warning messages encountered during recent chart exports."""
-    return list(LAST_EXPORT_WARNINGS)
+class ChartExportError(RuntimeError):
+    """Raised when a chart PNG cannot be rendered (e.g. Kaleido/Chrome missing). The deck is NOT built
+    with placeholder images."""
 
 
 def get_palette(brand_color: str = None) -> list:
@@ -50,27 +47,12 @@ def _save_fig(fig, name: str, output_dir: str = None, width: int = 1100, height:
     path_png = os.path.join(target_dir, name)
     try:
         fig.write_image(path_png, width=width, height=height, scale=1.5)
-        print(f"  ✅  Saved PNG : {path_png}")
         return path_png
     except Exception as e:
-        warn_msg = f"Kaleido PNG export failed for {name}: {e}"
-        print(f"  ⚠️   {warn_msg}")
-        LAST_EXPORT_WARNINGS.append(warn_msg)
-        try:
-            from PIL import Image, ImageDraw
-            img = Image.new("RGB", (width, height), color="#0E131F")
-            draw = ImageDraw.Draw(img)
-            draw.text((60, 60), f"Analytics Chart: {name}", fill="#F8FAFC")
-            draw.text((60, 110), f"(Export Notice: {warn_msg})", fill="#94A3B8")
-            img.save(path_png, "PNG")
-            return path_png
-        except Exception:
-            import base64
-            # 1x1 transparent PNG fallback
-            raw_png = base64.b64decode(b'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=')
-            with open(path_png, "wb") as f:
-                f.write(raw_png)
-            return path_png
+        raise ChartExportError(
+            f"Could not render chart image '{name}'. Make sure kaleido==0.2.1 is installed with plotly<6 "
+            f"(pip install -r requirements.txt). Details: {e}"
+        ) from e
 
 
 def _layout(fig, title: str):
@@ -288,8 +270,6 @@ def chart_top_products(top_products: pd.DataFrame, metric: str = "Revenue",
 def generate_all_charts(report_data: dict, config: dict = None, output_dir: str = None) -> dict:
     if config is None:
         config = {}
-
-    LAST_EXPORT_WARNINGS.clear()
 
     trend_type  = config.get("trend_type", "Grouped Bars")
     cat_type    = config.get("cat_type", "Horizontal Bar")

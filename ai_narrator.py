@@ -311,6 +311,9 @@ def validate_and_merge_narrative(narrative_dict: dict, fallback_dict: dict) -> d
         clean_recs = []
         for r in narrative_dict["recommendations"][:4]:
             if isinstance(r, dict) and "title" in r and "body" in r:
+                import re as _re
+                if not _re.fullmatch(r"#[0-9A-Fa-f]{6}", str(r.get("accent", ""))):
+                    r["accent"] = "#6366F1"
                 clean_recs.append(r)
         if len(clean_recs) == 4:
             validated["recommendations"] = clean_recs

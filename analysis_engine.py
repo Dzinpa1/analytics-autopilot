@@ -189,11 +189,12 @@ def clean_numeric_series(series: pd.Series) -> pd.Series:
 
 
 def load_and_validate(filepath: str) -> pd.DataFrame:
-    df = pd.read_csv(filepath, parse_dates=["Date"])
-    required = {"Date", "Revenue"}
-    missing  = required - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns in dataset: {missing}")
+    """Read any CSV/Excel file as-is. Column detection and cleaning happen in build_report_from_df
+    (which uses infer_mapping), so files do not need exact 'Date'/'Revenue' headers."""
+    from io_utils import read_tabular_path
+    df, _notes = read_tabular_path(filepath)
+    if df.empty:
+        raise ValueError("The file contains no rows.")
     return df
 
 
@@ -1268,7 +1269,7 @@ def infer_mapping(data, report_mode: str = "Sales & Retail Performance") -> dict
 
 
 def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: str = "Sales & Retail Performance", currency_symbol: str = "$",
-                         drop_exact_duplicates: bool = False, id_column: str = None, **kwargs) -> dict:
+                         drop_exact_duplicates: bool = False, id_column: str = None, source_notes: list = None, **kwargs) -> dict:
     """
     Core deterministic data engine. Takes any raw or mapped DataFrame,
     normalizes columns, strips currency characters, deduplicates, filters summary rows,
@@ -1482,6 +1483,8 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     date_range_str = f"{min_date.strftime('%b %d, %Y')} – {max_date.strftime('%b %d, %Y')}" if pd.notna(min_date) else "N/A"
 
     audit_trail.insert(0, f"Ingested {raw_row_count:,} raw records; {clean_row_count:,} usable ({retention_pct}% retained)")
+    for _n in (source_notes or []):
+        audit_trail.insert(1, _n)
     audit_trail.append(f"Time coverage: {date_range_str}")
 
     # 5. Text columns: trim/collapse whitespace and merge case-only variants. No Title Case.

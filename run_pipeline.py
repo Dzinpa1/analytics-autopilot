@@ -39,7 +39,10 @@ if __name__ == "__main__":
     report = build_report(CSV_PATH)
     kpis   = report["kpis"]
     print(f"  Revenue  : ${kpis['total_revenue']:,.2f}")
-    print(f"  Profit   : ${kpis['total_profit']:,.2f}  ({kpis['profit_margin']}% margin)")
+    if kpis.get("total_profit") is not None:
+        print(f"  Profit   : ${kpis['total_profit']:,.2f}  ({kpis.get('efficiency_display', 'N/A')} {kpis.get('efficiency_metric_name', '')})")
+    else:
+        print("  Profit   : not available (no profit/cost column found)")
     print(f"  Orders   : {kpis['total_orders']:,}")
     print(f"  Best month: {report['insights']['best_month']}")
 

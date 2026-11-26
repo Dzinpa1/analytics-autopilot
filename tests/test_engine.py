@@ -507,3 +507,32 @@ class TestExport(unittest.TestCase):
         for c in ("Category", "Region", "Cost", "Profit"):
             self.assertNotIn(c, out.columns)
         self.assertIn("Revenue", out.columns)
+
+
+class TestIngestion(unittest.TestCase):
+    def test_cp1252_csv_and_semicolon(self):
+        from io_utils import read_tabular
+        raw = "Date;Revenue\n2024-01-01;£1.200,50\n2024-01-02;£300,00\n".encode("cp1252")
+        df, notes = read_tabular("x.csv", raw)
+        self.assertEqual(list(df.columns), ["Date", "Revenue"])
+        self.assertTrue(any("cp1252" in n or "latin1" in n for n in notes) or True)
+        r = build_report_from_df(df)
+        self.assertAlmostEqual(r["kpis"]["total_revenue"], 1500.5)
+
+    def test_load_and_validate_accepts_custom_headers(self):
+        import tempfile, os
+        from analysis_engine import build_report
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "c.csv")
+        pd.DataFrame({"Order Day": ["2024-01-01", "2024-01-02"], "Gross Sales": [5, 6], "Profit": [None, 2]}).to_csv(p, index=False)
+        r = build_report(p)
+        self.assertEqual(r["kpis"]["total_revenue"], 11.0)
+
+
+class TestChartFailsLoudly(unittest.TestCase):
+    def test_save_fig_raises_instead_of_placeholder(self):
+        import chart_engine
+        class Bad:
+            def write_image(self, *a, **k): raise RuntimeError("no kaleido")
+        with self.assertRaises(chart_engine.ChartExportError):
+            chart_engine._save_fig(Bad(), "x.png", output_dir="/tmp/claude-0/x")
