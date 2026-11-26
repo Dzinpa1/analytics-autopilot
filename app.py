@@ -887,7 +887,7 @@ with st.sidebar:
         )
 
 clean_df = report_data.get("df", df)
-from analysis_engine import filter_df_by_time_scope, compute_kpis, category_breakdown, region_breakdown, get_time_scope_options
+from analysis_engine import filter_df_by_time_scope, compute_kpis, category_breakdown, region_breakdown, get_time_scope_options, build_scoped_report
 
 time_scopes = report_data.get("time_scopes", {})
 # Resolve scope options dynamically from clean_df if not yet in cached report_data
@@ -904,16 +904,21 @@ active_scope_id = scope_id_map.get(active_scope_label, "all")
 scoped_df, active_scope_name = filter_df_by_time_scope(clean_df, active_scope_id)
 if scoped_df is None or scoped_df.empty:
     scoped_df = clean_df
+    active_scope_id = "all"
     active_scope_name = "Full Period"
 
-if active_scope_id != "all":
-    kpis = compute_kpis(scoped_df, has_profit=report_data["kpis"].get("has_profit", True), report_mode=report_mode)
-    category = category_breakdown(scoped_df, has_profit=report_data["kpis"].get("has_profit", True))
-    region_df = region_breakdown(scoped_df)
-else:
-    kpis = report_data["kpis"]
-    category = report_data["category"]
-    region_df = report_data["region"]
+# One scoped report drives EVERYTHING downstream (cards, takeaways, narrative, preview, export).
+# The cached full-dataset report is never mutated.
+base_report = report_data
+report_data = build_scoped_report(base_report, active_scope_id, curr_sym)
+kpis      = report_data["kpis"]
+monthly   = report_data["monthly"]
+category  = report_data["category"]
+region_df = report_data["region"]
+insights  = report_data["insights"]
+anomalies = insights.get("anomalies", [])
+# Per-view copy that the trend drill-down may adjust (granularity/year) without touching report_data
+view_report = {**report_data, "insights": dict(report_data["insights"])}
 
 has_profit    = kpis.get("has_profit", True)
 total_revenue = kpis["total_revenue"]
@@ -975,6 +980,12 @@ from ai_narrator import generate_narrative, get_deterministic_fallback
 if "cached_ai_narratives" not in st.session_state:
     st.session_state.cached_ai_narratives = {}
 
+# Narrative is only reused when EVERYTHING that shaped it is identical
+narrative_key = (
+    data_hash, report_mode, active_scope_id, curr_sym, report_title,
+    hashlib.md5(repr(sorted((col_mapping or {}).items())).encode()).hexdigest(),
+)
+
 # Check if user explicitly triggered Gemini AI commentary
 if 'gen_ai_clicked' in locals() and gen_ai_clicked and active_api_key:
     if st.session_state.ai_calls_count >= MAX_AI_CALLS:
@@ -986,12 +997,12 @@ if 'gen_ai_clicked' in locals() and gen_ai_clicked and active_api_key:
                 report_data, report_title=report_title, report_mode=report_mode,
                 api_key=active_api_key, currency_symbol=curr_sym
             )
-            st.session_state.cached_ai_narratives[data_hash] = ai_result
+            st.session_state.cached_ai_narratives[narrative_key] = ai_result
             st.toast("✨ Gemini executive narrative & speaker notes generated!", icon="🧠")
 
 # Resolve active narrative: user-generated AI narrative for this data hash if available, else deterministic template
-if data_hash in st.session_state.cached_ai_narratives:
-    narrative = st.session_state.cached_ai_narratives[data_hash]
+if narrative_key in st.session_state.cached_ai_narratives:
+    narrative = st.session_state.cached_ai_narratives[narrative_key]
 else:
     narrative = get_deterministic_fallback(
         report_data, report_title=report_title, report_mode=report_mode, currency_symbol=curr_sym
@@ -1174,8 +1185,8 @@ with tab_dash:
             has_profit=has_profit,
             currency_symbol=curr_sym
         )
-        report_data["monthly"] = active_series
-        report_data["insights"].update(active_insights)
+        view_report["monthly"] = active_series
+        view_report["insights"].update(active_insights)
         monthly = active_series
 
         chart1_display_title = active_insights.get("trend_title", "Performance Trajectory")
@@ -1583,7 +1594,7 @@ with tab_deck:
                 sync_rank = sync_rank.sort_values(active_metric, ascending=False).head(active_top_n)
 
                 # Assemble presentation report data with active scope and filters
-                presentation_report = dict(report_data)
+                presentation_report = dict(view_report)
                 presentation_report["df"] = scoped_df
                 presentation_report["kpis"] = kpis
                 presentation_report["category"] = category

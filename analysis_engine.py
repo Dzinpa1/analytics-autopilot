@@ -1472,8 +1472,37 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
         "audit_log": audit_trail,
     }
 
+    return _assemble_report(clean_df, has_profit, report_mode, currency_symbol, hygiene, quarantined_df)
+
+
+def build_scoped_report(base_report: dict, scope_id: str, currency_symbol: str = None) -> dict:
+    """Return a complete report (KPIs, trend, breakdowns, insights, anomalies) for a time scope.
+    Never mutates base_report. Hygiene/quarantine stay those of the full dataset."""
+    if not scope_id or scope_id == "all":
+        out = dict(base_report)
+        out.setdefault("scope_id", "all")
+        out.setdefault("scope_name", "Full Period")
+        return out
+    clean_df = base_report["df"]
+    scoped_df, scope_name = filter_df_by_time_scope(clean_df, scope_id)
+    if scoped_df is None or scoped_df.empty:
+        return build_scoped_report(base_report, "all", currency_symbol)
+    sym = currency_symbol or base_report.get("meta", {}).get("currency_symbol", "$")
+    return _assemble_report(
+        scoped_df, bool(base_report["kpis"].get("has_profit", True)), base_report.get("report_mode", "Sales & Retail Performance"),
+        sym, base_report.get("hygiene", {}), base_report.get("quarantined_df"),
+        time_scopes=base_report.get("time_scopes"), scope_id=scope_id, scope_name=scope_name,
+    )
+
+
+def _assemble_report(clean_df: pd.DataFrame, has_profit: bool, report_mode: str, currency_symbol: str,
+                     hygiene: dict, quarantined_df: pd.DataFrame, time_scopes: dict = None,
+                     scope_id: str = "all", scope_name: str = "Full Period") -> dict:
+    """Compute every KPI/insight from an already-cleaned frame. Used for both the full
+    dataset and any time-scoped slice so the two can never drift apart."""
     kpis     = compute_kpis(clean_df, has_profit=has_profit, report_mode=report_mode)
-    time_scopes = get_available_time_scopes(clean_df)
+    if time_scopes is None:
+        time_scopes = get_available_time_scopes(clean_df)
     horizon_info = detect_time_horizon(clean_df)
     monthly, time_insights = compute_adaptive_time_series(clean_df, horizon_info, has_profit=has_profit, currency_symbol=currency_symbol)
     category = category_breakdown(clean_df, has_profit=has_profit)
@@ -1565,6 +1594,8 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
             "anomaly_headline":  anomaly_headline,
         },
         "hygiene": hygiene,
+        "scope_id": scope_id,
+        "scope_name": scope_name,
     }
 
 

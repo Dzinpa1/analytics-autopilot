@@ -365,3 +365,23 @@ class TestTrueMonthlyMetrics(unittest.TestCase):
     def test_growth_chart_type_accepted(self):
         import chart_engine, inspect
         self.assertNotIn('== "MoM Growth %"', inspect.getsource(chart_engine))
+
+
+class TestScopedReport(unittest.TestCase):
+    def test_scoped_report_is_self_consistent_and_non_mutating(self):
+        from analysis_engine import build_scoped_report, get_time_scope_options
+        dates = pd.date_range("2023-01-01", "2024-12-31", freq="D")
+        df = pd.DataFrame({
+            "Date": dates, "Revenue": 10.0,
+            "Category": ["A" if d.year == 2023 else "B" for d in dates],
+        })
+        base = build_report_from_df(df)
+        base_rev = base["kpis"]["total_revenue"]
+        opts = [o["id"] for o in get_time_scope_options(base["df"]) if o["id"] != "all"]
+        self.assertTrue(opts)
+        sid = next((o for o in opts if "2024" in str(o)), opts[0])
+        scoped = build_scoped_report(base, sid)
+        self.assertLess(scoped["kpis"]["total_revenue"], base_rev)
+        self.assertEqual(base["kpis"]["total_revenue"], base_rev)  # untouched
+        self.assertEqual(scoped["insights"]["top_category"], scoped["category"].iloc[0]["Category"])
+        self.assertEqual(scoped["scope_id"], sid)
