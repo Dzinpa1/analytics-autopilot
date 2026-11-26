@@ -97,8 +97,8 @@ class TestInferMapping(unittest.TestCase):
         mapping = infer_mapping(df, report_mode="Marketing & Ad Campaign ROI")
         self.assertEqual(mapping["date"], "Day")
         self.assertEqual(mapping["revenue"], "Ad Spend")
-        self.assertEqual(mapping["profit"], "Conversions")
-        self.assertEqual(mapping["cost"], "Cost Per Click")
+        self.assertEqual(mapping["conversions"], "Conversions")
+        self.assertIsNone(mapping["profit"])  # no return-value column present
         self.assertEqual(mapping["category"], "Campaign")
 
     def test_operations_mode_inference(self):
@@ -200,10 +200,10 @@ class TestReportFormulas(unittest.TestCase):
 
         # Total spend
         self.assertEqual(kpis["total_revenue"], 1000.0)
-        # Total conversions
-        self.assertEqual(kpis["total_profit"], 50.0)
-        # CPA = 1000 / 5 = 200.0
-        self.assertAlmostEqual(kpis["cpa"], 200.0, places=2)
+        # Total conversions = 50, CPA = spend / conversions = 1000 / 50 = 20 (NOT per row)
+        self.assertEqual(kpis["total_orders"], 50)
+        self.assertAlmostEqual(kpis["cpa"], 20.0, places=2)
+        self.assertIsNone(kpis["roas"])
 
     def test_operations_kpi_formulas(self):
         df = pd.DataFrame({
@@ -218,8 +218,8 @@ class TestReportFormulas(unittest.TestCase):
         self.assertEqual(kpis["total_profit"], 1000.0)   # Actual
         # Budget utilization % = (1000 / 1200) * 100 = 83.3%
         self.assertAlmostEqual(kpis["budget_utilization"], 83.3, places=1)
-        # Budget variance = 1200 - 1000 = 200
-        self.assertEqual(kpis["budget_variance"], 200.0)
+        # Variance = Actual - Budget = 1000 - 1200 = -200 (under budget)
+        self.assertEqual(kpis["budget_variance"], -200.0)
 
     def test_dynamic_year_extraction(self):
         df = pd.DataFrame({
@@ -385,3 +385,45 @@ class TestScopedReport(unittest.TestCase):
         self.assertEqual(base["kpis"]["total_revenue"], base_rev)  # untouched
         self.assertEqual(scoped["insights"]["top_category"], scoped["category"].iloc[0]["Category"])
         self.assertEqual(scoped["scope_id"], sid)
+
+
+class TestModeMath(unittest.TestCase):
+    def test_marketing_cpa_uses_conversions_not_rows(self):
+        df = pd.DataFrame({
+            "Date": pd.date_range("2024-01-01", periods=5, freq="D"),
+            "Spend": [200.0] * 5, "Conv": [10] * 5, "Channel": ["Search"] * 5,
+        })
+        m = {"date": "Date", "revenue": "Spend", "conversions": "Conv", "category": "Channel"}
+        r = build_report_from_df(df, mapping=m, report_mode="Marketing & Ad Campaign ROI")
+        k = r["kpis"]
+        self.assertEqual(k["total_revenue"], 1000.0)
+        self.assertEqual(k["total_orders"], 50)
+        self.assertEqual(k["cpa"], 20.0)
+        self.assertIsNone(k["roas"])  # no return mapped -> never invented
+
+    def test_marketing_roas_from_return_value(self):
+        df = pd.DataFrame({
+            "Date": pd.date_range("2024-01-01", periods=5, freq="D"),
+            "Spend": [200.0] * 5, "Conv": [10] * 5, "Ret": [600.0] * 5,
+        })
+        m = {"date": "Date", "revenue": "Spend", "conversions": "Conv", "profit": "Ret"}
+        r = build_report_from_df(df, mapping=m, report_mode="Marketing & Ad Campaign ROI")
+        self.assertEqual(r["kpis"]["roas"], 3.0)
+
+    def test_operations_variance_and_status(self):
+        df = pd.DataFrame({
+            "Date": pd.date_range("2024-01-01", periods=4, freq="D"),
+            "Budget": [300.0] * 4, "Actual": [250.0] * 4,
+        })
+        m = {"date": "Date", "revenue": "Budget", "profit": "Actual"}
+        r = build_report_from_df(df, mapping=m, report_mode="Operations & Expense Tracker")
+        k = r["kpis"]
+        self.assertEqual(k["budget_variance"], -200.0)
+        self.assertEqual(k["budget_utilization"], 83.3)
+        self.assertEqual(k["efficiency_pill_class"], "pill-green")
+
+    def test_operations_over_budget_is_red(self):
+        df = pd.DataFrame({"Date": pd.date_range("2024-01-01", periods=2), "B": [100.0, 100.0], "A": [130.0, 130.0]})
+        r = build_report_from_df(df, mapping={"date": "Date", "revenue": "B", "profit": "A"}, report_mode="Operations & Expense Tracker")
+        self.assertEqual(r["kpis"]["efficiency_pill_class"], "pill-red")
+        self.assertEqual(r["kpis"]["budget_variance"], 60.0)

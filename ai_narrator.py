@@ -93,12 +93,13 @@ def get_deterministic_fallback(
     worst_month = ins.get("worst_month", "Off-Peak Period")
     top_cat = ins.get("top_category", "Core Vertical")
     top_region = ins.get("top_region", "Primary Market")
+    basis = ins.get("top_basis", "highest revenue")
 
     anom_list = ins.get("anomalies", [])
     anom_phrase = f" Notably, {anom_list[0]['period']} recorded an abnormal {anom_list[0]['type'].lower()} ({anom_list[0]['pct_diff_mean']:+.1f}% vs. baseline)." if anom_list else ""
 
     rev_str = f"{curr}{total_revenue:,.0f}" if total_revenue else f"{curr}0"
-    aov_str = f"{curr}{avg_order_val:,.2f}" if avg_order_val else f"{curr}0"
+    aov_str = f"{curr}{avg_order_val:,.2f}" if avg_order_val else "N/A"
 
     eff_display = kpis.get("efficiency_display")
     if not eff_display:
@@ -111,56 +112,56 @@ def get_deterministic_fallback(
             "status": "fallback",
             "report_mode": mode,
             "executive_summary": (
-                f"During this campaign cycle, total ad spend reached {rev_str} delivering {total_orders:,} verified conversions. "
-                f"Portfolio velocity was led by {top_cat}, while {top_region} demonstrated the primary regional response profile.{anom_phrase}"
+                f"During this campaign cycle, total ad spend reached {rev_str} recording {total_orders:,} conversions. "
+                f"{top_cat} received the {basis} among channels/campaigns, and {top_region} the {basis} among markets.{anom_phrase}"
             ),
             "takeaways": [
                 {
                     "icon": "🎯",
-                    "title": "Peak Conversion Window",
-                    "body": f"{best_month} generated the highest conversion velocity. Schedule primary campaign flights around this high-response window."
+                    "title": "Peak Spend Period",
+                    "body": f"{best_month} was the period of highest ad spend. Review whether results in that window justified the investment."
                 },
                 {
                     "icon": "🚀",
-                    "title": "Top-Performing Channel",
-                    "body": f"{top_cat} yields our highest conversion volume. Focus creative optimization and core budget allocation in this vertical."
+                    "title": "Largest Channel by Spend",
+                    "body": f"{top_cat} took the {basis}. Compare its cost per conversion with other channels before shifting more budget."
                 },
                 {
                     "icon": "📍",
                     "title": "Primary Geography",
-                    "body": f"{top_region} commands the largest share of conversions. Deploy localized creative messaging and retargeting pools here."
+                    "body": f"{top_region} took the {basis} among markets. Check its return against spend before scaling."
                 }
             ],
             "recommendations": [
                 {
                     "tag": "1. Scale Top Funnel",
                     "title": f"Expand Media Spend in {top_region}",
-                    "body": f"Increase budget allocation in {top_region} to capture compounding conversion demand at disciplined acquisition costs.",
+                    "body": f"Test incremental budget in {top_region} and track cost per acquisition to confirm returns hold.",
                     "accent": "#6366F1"
                 },
                 {
                     "tag": "2. CAC Optimization",
                     "title": "Refine Audience Thresholds",
-                    "body": f"Maintain disciplined bid caps to safeguard our {margin_str} acquisition efficiency benchmark across channels.",
+                    "body": f"Maintain disciplined bid caps to keep return efficiency ({margin_str}) at or above target across channels.",
                     "accent": "#34D399"
                 },
                 {
                     "tag": "3. Off-Peak Pacing",
                     "title": f"Mitigate {worst_month} Contraction",
-                    "body": f"Deploy targeted promotional incentives and lead-nurturing funnels to sustain volume during the {worst_month} slowdown.",
+                    "body": f"Plan targeted promotions to support volume during the {worst_month} low-spend period.",
                     "accent": "#F87171"
                 },
                 {
                     "tag": "4. Conversion Lift",
                     "title": "Optimize Funnel Unit Economics",
-                    "body": f"A/B test landing page value propositions to improve cost efficiency relative to current benchmark ({aov_str}).",
+                    "body": f"A/B test landing page value propositions to improve cost per acquisition (currently {aov_str}).",
                     "accent": "#FBBF24"
                 }
             ],
             "speaker_notes": {
                 "slide_1": f"Welcome everyone. Today we are presenting our marketing performance review for {report_title}. We will cover overall ad spend, channel conversion efficiency, geographic response, and our scaling roadmap.",
                 "slide_2": f"On slide 2, total ad spend closed at {rev_str} delivering {total_orders:,} total conversions with an average unit cost of {aov_str}. Return efficiency registered at {margin_str}.",
-                "slide_3": f"Looking at monthly pacing on slide 3: {best_month} delivered our highest conversion efficiency. Conversely, {worst_month} represents our seasonal trough where we should deploy counter-cyclical creative testing.",
+                "slide_3": f"Looking at monthly pacing on slide 3: {best_month} was the peak-spend period. Conversely, {worst_month} was the lowest-spend period, a natural window for creative testing.",
                 "slide_4": f"Slide 4 highlights that {top_cat} is our primary volume driver. We recommend concentrating our creative budget here while reviewing lower-performing segments.",
                 "slide_5": f"Finally, slide 5 gives four growth priorities: First, scale spend in {top_region}; second, preserve target efficiency benchmarks; third, launch bridging campaigns for {worst_month}; and fourth, optimize funnels to lower acquisition costs."
             }
@@ -177,24 +178,24 @@ def get_deterministic_fallback(
                 {
                     "icon": "⚡",
                     "title": "Peak Throughput Cycle",
-                    "body": f"{best_month} recorded peak operational throughput. Schedule preventive maintenance and staffing capacity ahead of this cycle."
+                    "body": f"{best_month} had the largest budget allocation. Make sure staffing and capacity plans cover that cycle."
                 },
                 {
                     "icon": "⚙️",
                     "title": "Primary Department",
-                    "body": f"{top_cat} accounts for the largest resource expenditure. Institute workflow reviews and process standardization in this vertical."
+                    "body": f"{top_cat} has the {basis}. Review its spending against plan."
                 },
                 {
                     "icon": "🏢",
                     "title": "Facility Workload",
-                    "body": f"{top_region} handles the highest operational load. Evaluate automated tooling and workflow streamlining for this hub."
+                    "body": f"{top_region} has the {basis} among locations. Review whether spending there is on plan."
                 }
             ],
             "recommendations": [
                 {
                     "tag": "1. Workflow Automation",
                     "title": f"Modernize Operations in {top_region}",
-                    "body": f"Implement standardized tracking across {top_region} to absorb volume without administrative friction.",
+                    "body": f"Standardize expense tracking in {top_region} so variances to budget are visible early.",
                     "accent": "#6366F1"
                 },
                 {

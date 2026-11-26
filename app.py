@@ -202,6 +202,7 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stAppViewBlockCont
     padding: 3px 9px;
     border-radius: 20px;
 }
+.pill-red { background: rgba(239, 68, 68, 0.12); color: #F87171; border: 1px solid rgba(239, 68, 68, 0.25); }
 .pill-green { background: rgba(16, 185, 129, 0.12); color: #34D399; border: 1px solid rgba(16, 185, 129, 0.25); }
 .pill-purple { background: rgba(139, 92, 246, 0.12); color: #C084FC; border: 1px solid rgba(139, 92, 246, 0.25); }
 .pill-blue   { background: rgba(56, 189, 248, 0.12); color: #38BDF8; border: 1px solid rgba(56, 189, 248, 0.25); }
@@ -630,6 +631,7 @@ date_col    = inferred_cols.get("date") or cols[0]
 revenue_col = inferred_cols.get("revenue") or cols[0]
 profit_col  = inferred_cols.get("profit") or "None / Not Available"
 cost_col    = inferred_cols.get("cost") or "None / Not Available"
+conv_col    = inferred_cols.get("conversions") or "None / Not Available"
 cat_col     = inferred_cols.get("category") or "None / Not Available"
 region_col  = inferred_cols.get("region") or "None / Not Available"
 
@@ -641,9 +643,14 @@ with st.sidebar:
         rev_input_label = "Spend / Revenue" if "Marketing" in report_mode else ("Budget / Allocation" if "Operations" in report_mode else "Revenue Column")
         date_col    = st.selectbox("Date Column", cols, index=cols.index(date_col))
         revenue_col = st.selectbox(rev_input_label, cols, index=cols.index(revenue_col))
-        profit_input_label = "Conversions / Return" if "Marketing" in report_mode else ("Actual Expenses" if "Operations" in report_mode else "Profit Column")
+        profit_input_label = "Return Value (optional, for ROAS)" if "Marketing" in report_mode else ("Actual Expenses" if "Operations" in report_mode else "Profit Column")
         profit_col  = st.selectbox(profit_input_label, opt_cols, index=opt_cols.index(profit_col))
-        cost_col    = st.selectbox("Cost / CPA Column", opt_cols, index=opt_cols.index(cost_col))
+        if "Sales" in report_mode:
+            cost_col = st.selectbox("Cost Column", opt_cols, index=opt_cols.index(cost_col))
+        else:
+            cost_col = "None / Not Available"
+        if "Marketing" in report_mode:
+            conv_col = st.selectbox("Conversions Column", opt_cols, index=opt_cols.index(conv_col))
         cat_input_label = "Channel / Campaign" if "Marketing" in report_mode else ("Department / Unit" if "Operations" in report_mode else "Category Column")
         reg_input_label = "Market / Geo" if "Marketing" in report_mode else ("Facility / Location" if "Operations" in report_mode else "Region Column")
         cat_col     = st.selectbox(cat_input_label, opt_cols, index=opt_cols.index(cat_col))
@@ -689,6 +696,7 @@ col_mapping = {
     "revenue": revenue_col,
     "profit": profit_col if profit_col != "None / Not Available" else None,
     "cost": cost_col if cost_col != "None / Not Available" else None,
+    "conversions": conv_col if ("Marketing" in report_mode and conv_col != "None / Not Available") else None,
     "category": cat_col if cat_col != "None / Not Available" else None,
     "region": region_col if region_col != "None / Not Available" else None,
     "product": "Product" if "Product" in df.columns else (cat_col if cat_col != "None / Not Available" else None),
@@ -1421,7 +1429,7 @@ with tab_deck:
     best_period_desc  = insights.get("best_period_desc", "Highest activity concentration recorded. Driven by aligned campaign flights and peak demand velocity.")
     worst_period_desc = insights.get("worst_period_desc", "Softest period recorded. Represents our primary opportunity for strategic counter-cyclical initiatives.")
     trend_slide_title = insights.get("trend_title") or meta.get("trend_title", "Performance Trajectory & Trend")
-    period_guidance   = insights.get("period_guidance", f"Ramp up operational readiness 45 days prior to {best_period} to maximize capture rate.")
+    period_guidance   = insights.get("period_guidance", f"Review capacity and planning ahead of best_period, the strongest period in this data.")
 
     slides = [
         {

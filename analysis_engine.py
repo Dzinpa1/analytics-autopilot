@@ -171,85 +171,84 @@ def compute_kpis(df: pd.DataFrame, has_profit: bool = True, report_mode: str = "
     return_rate = round((df["Returned"].sum() / total_orders * 100), 2) if has_returns and total_orders else 0.0
 
     if "Marketing" in mode:
-        # Marketing & Ad Spend: ROAS & CPA
+        # Spend = Revenue column. Conversions and Return are separate, explicit columns.
         total_spend = float(df["Revenue"].sum())
-        total_return = float(df["Profit"].sum()) if has_profit and "Profit" in df.columns else None
-        conversions = total_orders
-        cpa = round((total_spend / conversions), 2) if conversions > 0 else 0.0
+        has_conv = "Conversions" in df.columns
+        conversions = float(df["Conversions"].sum()) if has_conv else None
+        has_return = bool(has_profit and "Profit" in df.columns)
+        total_return = float(df["Profit"].sum()) if has_return else None
+        cpa = round(total_spend / conversions, 2) if (conversions and conversions > 0) else None
+        roas = round(total_return / total_spend, 2) if (has_return and total_spend > 0) else None
 
-        if total_return is not None and total_spend > 0:
-            roas = round((total_return / total_spend), 2)
-            profit_margin = roas
-            eff_name = "ROAS"
-            eff_display = f"{roas:.2f}x"
+        if roas is not None:
+            eff_name, eff_display = "ROAS", f"{roas:.2f}x"
             eff_status = "Target: >2.0x" if roas >= 2.0 else "Below 2.0x Target"
             eff_class = "pill-purple" if roas >= 2.0 else "pill-amber"
-        elif total_spend > 0:
-            conv_rate = round((conversions / total_spend * 100), 2)
-            profit_margin = conv_rate
-            eff_name = "Conv. Efficiency"
-            eff_display = f"{conv_rate:.2f}%"
-            eff_status = "Target: >3.0%" if conv_rate >= 3.0 else "Below 3.0% Target"
-            eff_class = "pill-purple" if conv_rate >= 3.0 else "pill-amber"
         else:
-            profit_margin = None
-            eff_name = "ROAS"
-            eff_display = "N/A"
-            eff_status = "Spend Unmapped"
+            eff_name, eff_display = "ROAS", "N/A"
+            eff_status = "Map a Return Value column to compute ROAS"
             eff_class = "pill-blue"
 
         return {
             "total_revenue": round(total_spend, 2),
             "total_profit": round(total_return, 2) if total_return is not None else None,
             "total_cost": round(total_spend, 2),
-            "total_orders": conversions,
-            "total_units": total_units,
-            "has_units": has_units,
-            "has_returns": has_returns,
+            "total_orders": int(conversions) if conversions is not None else 0,
+            "total_units": int(conversions) if conversions is not None else 0,
+            "has_units": False,
+            "has_returns": False,
+            "has_conversions": has_conv,
             "avg_order_value": cpa,
-            "profit_margin": profit_margin,
-            "return_rate": return_rate,
-            "has_profit": has_profit,
+            "profit_margin": roas,
+            "return_rate": 0.0,
+            "has_profit": has_return,
             "efficiency_metric_name": eff_name,
             "efficiency_display": eff_display,
             "efficiency_status": eff_status,
             "efficiency_pill_class": eff_class,
-            "roas": profit_margin,
+            "roas": roas,
             "cpa": cpa,
         }
 
     elif "Operations" in mode:
-        # Operations & Logistics: Variance & Budget Utilization %
-        op_budget = float(df["Revenue"].sum())
-        actual_expenses = float(df["Cost"].sum()) if ("Cost" in df.columns and df["Cost"].sum() > 0) else (float(df["Profit"].sum()) if (has_profit and "Profit" in df.columns) else 0.0)
-        variance = round(op_budget - actual_expenses, 2)
-        utilization_pct = round((actual_expenses / op_budget * 100), 1) if op_budget > 0 else 0.0
-        cost_per_order = round((actual_expenses / total_orders), 2) if total_orders > 0 else 0.0
+        # Budget = Revenue column; Actual = Profit column (mapped from "Actual Expenses").
+        budget = float(df["Revenue"].sum())
+        has_actual = bool(has_profit and "Profit" in df.columns)
+        actual = float(df["Profit"].sum()) if has_actual else None
+        if actual is not None:
+            variance = round(actual - budget, 2)  # positive = overspend
+            utilization_pct = round(actual / budget * 100, 1) if budget > 0 else None
+            cost_per_item = round(actual / total_orders, 2) if total_orders > 0 else None
+        else:
+            variance = utilization_pct = cost_per_item = None
 
         eff_name = "Budget Utilization"
-        eff_display = f"{utilization_pct:.1f}%"
-        if utilization_pct <= 95.0:
-            eff_status = f"On Budget (Under by {abs(variance):,.0f})"
-            eff_class = "pill-green"
-        elif utilization_pct <= 100.0:
-            eff_status = "Fully Allocated (<=100%)"
-            eff_class = "pill-green"
+        if utilization_pct is None:
+            eff_display, eff_status, eff_class = "N/A", "Map an Actual Expenses column", "pill-blue"
         else:
-            eff_status = f"Over Budget (+{utilization_pct - 100.0:.1f}%)"
-            eff_class = "pill-amber"
+            eff_display = f"{utilization_pct:.1f}%"
+            if utilization_pct > 100.0:
+                eff_status = f"Over Budget by {abs(variance):,.0f}"
+                eff_class = "pill-red"
+            elif utilization_pct >= 90.0:
+                eff_status = f"Near Limit ({abs(variance):,.0f} remaining)"
+                eff_class = "pill-amber"
+            else:
+                eff_status = f"On Budget ({abs(variance):,.0f} remaining)"
+                eff_class = "pill-green"
 
         return {
-            "total_revenue": round(op_budget, 2),
-            "total_profit": round(actual_expenses, 2),
-            "total_cost": round(actual_expenses, 2),
+            "total_revenue": round(budget, 2),
+            "total_profit": round(actual, 2) if actual is not None else None,
+            "total_cost": round(actual, 2) if actual is not None else None,
             "total_orders": total_orders,
             "total_units": total_units,
             "has_units": has_units,
             "has_returns": has_returns,
-            "avg_order_value": cost_per_order,
+            "avg_order_value": cost_per_item,
             "profit_margin": utilization_pct,
             "return_rate": return_rate,
-            "has_profit": has_profit,
+            "has_profit": has_actual,
             "efficiency_metric_name": eff_name,
             "efficiency_display": eff_display,
             "efficiency_status": eff_status,
@@ -672,7 +671,7 @@ def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict = None, ta
             "worst_period_tag": "⚠️ Softest Fiscal Quarter",
             "best_period_desc": f"Delivered {best_pct}% of total volume ({sym}{best_q_rev:,.0f}). Strongest quarterly execution.",
             "worst_period_desc": f"Generated {worst_pct}% of volume ({sym}{worst_q_rev:,.0f}). Target for counter-cyclical growth initiatives.",
-            "period_guidance": f"Ramp up commercial capacity and marketing budgets 45 days prior to {best_q} to maximize capture rate.",
+            "period_guidance": f"Review capacity and planning ahead of best_q, the strongest period in this data.",
             "growth_rate_metric": "QoQ",
             "avg_growth_rate": round(quarterly["MoM_Growth"].dropna().mean(), 2) if not quarterly.empty else 0.0,
             "x_tick_angle": 0,
@@ -847,7 +846,7 @@ def compute_adaptive_time_series(df: pd.DataFrame, horizon_info: dict = None, ta
             "worst_period_tag": "⚠️ Contraction Window",
             "best_period_desc": "Highest activity concentration recorded across the multi-month period.",
             "worst_period_desc": "Softest period recorded. Primary opportunity for strategic counter-cyclical initiatives.",
-            "period_guidance": f"Ramp up operational readiness 45 days prior to {best_m_full} to maximize capture rate.",
+            "period_guidance": f"Review capacity and planning ahead of best_m_full, the strongest period in this data.",
             "growth_rate_metric": "MoM",
             "avg_growth_rate": round(monthly["MoM_Growth"].dropna().mean(), 2) if not monthly.empty else 0.0,
             "x_tick_angle": 0,
@@ -1190,11 +1189,13 @@ def infer_mapping(data, report_mode: str = "Sales & Retail Performance") -> dict
         return None
 
     mode = report_mode or "Sales & Retail Performance"
+    conv_col = None
     if "Marketing" in mode:
         date_col    = fcol(["date", "time", "day", "month", "period"])
         revenue_col = fcol(["spend", "ad_spend", "budget", "investment", "revenue", "sales", "cost", "amount", "total"], exclude=["price", "unit_price"])
-        profit_col  = fcol_opt(["conversions", "leads", "acquisitions", "return", "profit", "margin", "net"], exclude=["unit_cost"])
-        cost_col    = fcol_opt(["cpc", "cpa", "cost", "expense"])
+        profit_col  = fcol_opt(["return_value", "return", "revenue_generated", "conversion_value", "attributed_revenue", "profit"], exclude=["unit_cost"])
+        conv_col    = fcol_opt(["conversions", "conversion", "leads", "acquisitions", "signups", "sign_ups", "purchases"])
+        cost_col    = None
         cat_col     = fcol_opt(["channel", "campaign", "network", "source", "medium", "category", "type"], exclude=["price", "unit_price", "cost"])
         region_col  = fcol_opt(["region", "country", "market", "geo", "location", "city", "audience"])
         prod_col    = fcol_opt(["campaign", "ad", "creative", "product", "item"])
@@ -1202,8 +1203,8 @@ def infer_mapping(data, report_mode: str = "Sales & Retail Performance") -> dict
     elif "Operations" in mode:
         date_col    = fcol(["date", "time", "day", "month", "period"])
         revenue_col = fcol(["budget", "allocated", "target", "total_budget", "revenue", "amount", "total"], exclude=["price", "unit_price", "rate"])
-        profit_col  = fcol_opt(["expense", "actual", "spend", "cost", "variance", "profit"], exclude=["unit_cost", "price"])
-        cost_col    = fcol_opt(["cogs", "fixed_cost", "variable_cost", "overhead", "cost"], exclude=["unit_cost", "price"])
+        profit_col  = fcol_opt(["actual", "actual_expenses", "expense", "expenses", "spend", "cost"], exclude=["unit_cost", "price", "variance"])
+        cost_col    = None
         cat_col     = fcol_opt(["category", "department", "dept", "cost_center", "function", "type", "unit"], exclude=["price", "cost", "unit_price", "rate"])
         region_col  = fcol_opt(["facility", "branch", "site", "warehouse", "region", "location", "plant"])
         prod_col    = fcol_opt(["item", "task", "work_order", "expense_item", "product"])
@@ -1223,6 +1224,7 @@ def infer_mapping(data, report_mode: str = "Sales & Retail Performance") -> dict
         "revenue": revenue_col,
         "profit": profit_col,
         "cost": cost_col,
+        "conversions": conv_col,
         "category": cat_col,
         "region": region_col,
         "product": prod_col or cat_col,
@@ -1306,6 +1308,7 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
             "product": "Product",
             "channel": "Channel",
             "quantity": "Quantity",
+            "conversions": "Conversions",
         }
         for target, src in active_mapping.items():
             target_col = target_name_map.get(target.lower(), target.capitalize())
@@ -1390,13 +1393,20 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
             audit_trail.append(f"Sanitized {sym_cnt} formatted value(s) in Profit")
         if null_cnt > 0:
             audit_trail.append(f"Imputed {null_cnt} missing/invalid Profit value(s) to 0.0")
-    elif has_mapped_cost and "Cost" in clean_df.columns:
+    elif has_mapped_cost and "Cost" in clean_df.columns and "Sales" in (report_mode or "Sales"):
         clean_df["Profit"] = clean_df["Revenue"] - clean_df["Cost"]
         has_profit = True
         audit_trail.append("Derived Net Profit mathematically (Revenue - Cost)")
     else:
         clean_df["Profit"] = 0.0
         has_profit = False
+
+    if "Conversions" in clean_df.columns:
+        clean_df["Conversions"], c_cnt, c_nulls = sanitize_numeric_column(clean_df["Conversions"], return_details=True)
+        symbols_cleaned_total += c_cnt
+        nulls_imputed_total += c_nulls
+        if c_nulls > 0:
+            audit_trail.append(f"Imputed {c_nulls} missing/invalid Conversions value(s) to 0.0")
 
     if "Quantity" in clean_df.columns:
         clean_df["Quantity"], q_cnt, q_nulls = sanitize_numeric_column(clean_df["Quantity"], return_details=True)
@@ -1532,6 +1542,8 @@ def _assemble_report(clean_df: pd.DataFrame, has_profit: bool, report_mode: str,
         best_month = str(full_months.loc[full_months["Revenue"].idxmax(), "Month_Label"])
         worst_month = str(full_months.loc[full_months["Revenue"].idxmin(), "Month_Label"])
 
+    mode_top_basis = ("highest spend" if "Marketing" in report_mode else
+                      ("largest budget" if "Operations" in report_mode else "highest revenue"))
     top_cat     = category.iloc[0]["Category"] if not category.empty else "General"
     top_region  = region.iloc[0]["Region"] if not region.empty else "Global"
     top_channel = channels.iloc[0]["Channel"] if has_channel and not channels.empty else None
@@ -1576,7 +1588,7 @@ def _assemble_report(clean_df: pd.DataFrame, has_profit: bool, report_mode: str,
             "worst_period_tag":  time_insights.get("worst_period_tag", "⚠️ Contraction Window"),
             "best_period_desc":  time_insights.get("best_period_desc", "Highest activity concentration recorded."),
             "worst_period_desc": time_insights.get("worst_period_desc", "Softest period recorded. Primary opportunity for strategic initiatives."),
-            "period_guidance":   time_insights.get("period_guidance", f"Ramp up operational readiness 45 days prior to {best_period} to maximize capture rate."),
+            "period_guidance":   time_insights.get("period_guidance", f"Review capacity and planning ahead of best_period, the strongest period in this data."),
             "trend_title":       time_insights.get("trend_title", "Performance Trajectory"),
             "time_horizon":      horizon_info["horizon"],
             "horizon_desc":      horizon_info["desc"],
@@ -1585,6 +1597,7 @@ def _assemble_report(clean_df: pd.DataFrame, has_profit: bool, report_mode: str,
             "growth_arrow":      growth_arrow,
             "growth_label":      growth_label,
             "partial_months":    partial_months,
+            "top_basis":         mode_top_basis,
             "top_category":      top_cat,
             "top_region":        top_region,
             "top_channel":       top_channel,
