@@ -358,9 +358,10 @@ class TestTrueMonthlyMetrics(unittest.TestCase):
         r = build_report_from_df(pd.concat([d1, d2]))
         self.assertFalse(np.isinf(r["monthly_series"]["MoM_Growth"].dropna()).any())
 
-    def test_no_valid_dates_does_not_crash(self):
+    def test_no_valid_dates_gives_clear_error_not_nameerror(self):
         df = pd.DataFrame({"Date": ["x", "y"], "Revenue": [1, 2]})
-        build_report_from_df(df)
+        with self.assertRaises(ValueError):
+            build_report_from_df(df)
 
     def test_growth_chart_type_accepted(self):
         import chart_engine, inspect
@@ -427,3 +428,82 @@ class TestModeMath(unittest.TestCase):
         r = build_report_from_df(df, mapping={"date": "Date", "revenue": "B", "profit": "A"}, report_mode="Operations & Expense Tracker")
         self.assertEqual(r["kpis"]["efficiency_pill_class"], "pill-red")
         self.assertEqual(r["kpis"]["budget_variance"], 60.0)
+
+
+class TestNonDestructiveCleaning(unittest.TestCase):
+    def _base(self, **cols):
+        n = len(next(iter(cols.values()))) if cols else 3
+        d = {"Date": pd.date_range("2024-01-01", periods=n, freq="D"), "Revenue": [10.0] * n}
+        d.update(cols)
+        return pd.DataFrame(d)
+
+    def test_duplicates_kept_by_default_and_removed_on_request(self):
+        df = self._base(Product=["A", "A", "A"]).iloc[[0, 0, 1]].reset_index(drop=True)
+        r = build_report_from_df(df)
+        self.assertEqual(r["hygiene"]["clean_row_count"], 3)
+        self.assertEqual(r["hygiene"]["duplicates_removed"], 0)
+        self.assertEqual(r["hygiene"]["duplicates_detected"], 1)
+        r2 = build_report_from_df(df, drop_exact_duplicates=True)
+        self.assertEqual(r2["hygiene"]["clean_row_count"], 2)
+
+    def test_summary_row_only_at_end(self):
+        df = self._base(Name=["Total Wine", "B", "C", "D", "E", "F", "G", "H"])
+        df.loc[1, "Name"] = "Summary"           # mid-file "Summary" must survive
+        r = build_report_from_df(df)
+        self.assertEqual(r["hygiene"]["summary_rows_removed"], 0)
+        df2 = self._base(Name=["a", "b", "c", "d", "e", "f", "g", "Grand Total"])
+        r2 = build_report_from_df(df2)
+        self.assertEqual(r2["hygiene"]["summary_rows_removed"], 1)
+
+    def test_no_title_case_mangling(self):
+        df = self._base(Product=["USB-C Hub", "SPF50 Cream", "iPhone"])
+        r = build_report_from_df(df)
+        self.assertEqual(set(r["df"]["Product"]), {"USB-C Hub", "SPF50 Cream", "iPhone"})
+
+    def test_case_variants_merged(self):
+        df = self._base(Region=["north", "North", "North", "south"])
+        r = build_report_from_df(df)
+        self.assertEqual(set(r["df"]["Region"]), {"North", "south"})
+
+    def test_invalid_dates_and_revenue_quarantined_not_invented(self):
+        df = pd.DataFrame({
+            "Date": ["2024-01-05", "garbage", "2024-02-10", "2024-03-01", "2024-03-02"],
+            "Revenue": ["100", "50", "oops", "200", "$300"],
+        })
+        r = build_report_from_df(df)
+        self.assertEqual(r["hygiene"]["clean_row_count"], 3)
+        self.assertEqual(r["hygiene"]["quarantined_rows_count"], 2)
+        self.assertEqual(r["kpis"]["total_revenue"], 600.0)
+        self.assertLess(r["hygiene"]["health_score"], 100)
+        self.assertEqual(r["df"]["Date"].min(), pd.Timestamp("2024-01-05"))
+
+    def test_quantity_not_clipped_or_defaulted(self):
+        df = self._base(Quantity=[0, 2, -1])
+        r = build_report_from_df(df)
+        self.assertEqual(list(r["df"]["Quantity"]), [0.0, 2.0, -1.0])
+        r2 = build_report_from_df(self._base())
+        self.assertFalse(r2["kpis"]["has_units"])
+
+    def test_plain_text_numbers_not_counted_as_formatted(self):
+        df = self._base()
+        df["Revenue"] = ["10", "20", "30"]
+        r = build_report_from_df(df)
+        self.assertEqual(r["hygiene"]["currency_symbols_stripped"], 0)
+
+    def test_clean_file_reports_no_issues(self):
+        r = build_report_from_df(self._base(Region=["a", "b", "c"]))
+        self.assertEqual(r["hygiene"]["health_score"], 100)
+        self.assertIn("No issues", r["hygiene"]["health_status"])
+
+
+class TestExport(unittest.TestCase):
+    def test_workbook_excludes_placeholder_columns(self):
+        import io
+        from export_utils import generate_cleaned_workbook
+        df = pd.DataFrame({"Date": pd.date_range("2024-01-01", periods=3), "Revenue": [1.0, 2.0, 3.0]})
+        r = build_report_from_df(df)
+        data = generate_cleaned_workbook(r["df"], r["hygiene"], r["quarantined_df"])
+        out = pd.read_excel(io.BytesIO(data), sheet_name="Cleaned_Data")
+        for c in ("Category", "Region", "Cost", "Profit"):
+            self.assertNotIn(c, out.columns)
+        self.assertIn("Revenue", out.columns)

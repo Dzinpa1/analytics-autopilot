@@ -655,6 +655,12 @@ with st.sidebar:
         reg_input_label = "Market / Geo" if "Marketing" in report_mode else ("Facility / Location" if "Operations" in report_mode else "Region Column")
         cat_col     = st.selectbox(cat_input_label, opt_cols, index=opt_cols.index(cat_col))
         region_col  = st.selectbox(reg_input_label, opt_cols, index=opt_cols.index(region_col))
+        st.markdown("**Duplicates**")
+        drop_dupes_opt = st.checkbox("Remove exact duplicate rows", value=False,
+                                     help="Off by default: identical rows are often genuine repeat transactions.")
+        id_col_choice = st.selectbox("Unique ID column (optional)", opt_cols, index=0,
+                                     help="If your file has an order/transaction ID, rows with a repeated ID are removed.")
+        id_col_opt = None if id_col_choice == "None / Not Available" else id_col_choice
 
     with st.expander("🤖 AI Intelligence (Gemini)", expanded=False):
         gemini_api_key_input = st.text_input(
@@ -709,133 +715,14 @@ data_hash = hashlib.md5(pd.util.hash_pandas_object(df, index=True).values).hexdi
 data_signature = f"{data_hash}_{ENGINE_VERSION}"
 
 @st.cache_data(show_spinner=False)
-def get_cached_report(_df, mapping, mode, curr, data_signature):
-    return build_report_from_df(_df, mapping=mapping, report_mode=mode, currency_symbol=curr)
+def get_cached_report(_df, mapping, mode, curr, data_signature, drop_dupes=False, id_col=None):
+    return build_report_from_df(_df, mapping=mapping, report_mode=mode, currency_symbol=curr,
+                                drop_exact_duplicates=drop_dupes, id_column=id_col)
 
-def generate_cleaned_workbook(clean_df: pd.DataFrame, hygiene: dict, quarantined_df: pd.DataFrame, currency_symbol: str = "$") -> bytes:
-    from openpyxl.worksheet.table import Table, TableStyleInfo
-    from openpyxl.utils import get_column_letter
-
-    output = io.BytesIO()
-    sym = currency_symbol if currency_symbol else "$"
-    curr_fmt = f'"{sym}"#,##0.00'
-
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        export_df = clean_df.copy()
-        # Keep Date as native Python date objects so openpyxl writes true Excel dates
-        if "Date" in export_df.columns:
-            export_df["Date"] = pd.to_datetime(export_df["Date"], errors="coerce").dt.date
-
-        export_df.to_excel(writer, sheet_name="Cleaned_Data", index=False)
-
-        # ── 1. Format Cleaned_Data as an Official Excel Table ────────────────
-        ws_clean = writer.sheets["Cleaned_Data"]
-        max_row = len(export_df) + 1  # include header row
-        max_col = len(export_df.columns)
-        max_col_letter = get_column_letter(max_col)
-
-        date_col_indices = set()
-        curr_col_indices = set()
-        int_col_indices  = set()
-
-        for c_idx, col_name in enumerate(export_df.columns, start=1):
-            col_l = str(col_name).lower()
-            if "date" in col_l:
-                date_col_indices.add(c_idx)
-            elif any(k in col_l for k in ["revenue", "profit", "cost", "spend", "budget", "aov", "price"]):
-                curr_col_indices.add(c_idx)
-            elif any(k in col_l for k in ["quantity", "orders", "units", "conversions", "count"]):
-                int_col_indices.add(c_idx)
-
-        # Apply true Excel number_format rules
-        for row in ws_clean.iter_rows(min_row=2, max_row=max_row, min_col=1, max_col=max_col):
-            for cell in row:
-                if cell.column in date_col_indices:
-                    cell.number_format = 'yyyy-mm-dd'
-                elif cell.column in curr_col_indices and isinstance(cell.value, (int, float)):
-                    cell.number_format = curr_fmt
-                elif cell.column in int_col_indices and isinstance(cell.value, (int, float)):
-                    cell.number_format = '#,##0'
-
-        # Create Table Object with Banded Rows & Filter Dropdowns
-        tab_clean = Table(displayName="CleanedDataTable", ref=f"A1:{max_col_letter}{max_row}")
-        tab_clean.tableStyleInfo = TableStyleInfo(
-            name="TableStyleMedium9",
-            showFirstColumn=False,
-            showLastColumn=False,
-            showRowStripes=True,
-            showColumnStripes=False
-        )
-        ws_clean.add_table(tab_clean)
-
-        # Auto-fit column widths
-        for col in ws_clean.columns:
-            col_letter = get_column_letter(col[0].column)
-            max_len = max(len(str(cell.value or '')) for cell in col)
-            ws_clean.column_dimensions[col_letter].width = max(max_len + 4, 12)
-
-        # ── 2. Format Audit_Trail Sheet ──────────────────────────────────────
-        audit_summary = [
-            {"Metric": "Overall Data Health Score", "Value": f"{hygiene.get('health_score', 100)}% ({hygiene.get('health_status', 'Certified Clean')})"},
-            {"Metric": "Raw Records Ingested", "Value": hygiene.get("raw_row_count", len(clean_df))},
-            {"Metric": "Cleaned Records Retained", "Value": hygiene.get("clean_row_count", len(clean_df))},
-            {"Metric": "Retention Rate", "Value": f"{hygiene.get('rows_retained_pct', 100.0)}%"},
-            {"Metric": "Duplicates Removed", "Value": hygiene.get("duplicates_removed", 0)},
-            {"Metric": "Summary Rows Excluded", "Value": hygiene.get("summary_rows_removed", 0)},
-            {"Metric": "Blank / Dropped Rows", "Value": hygiene.get("dropped_rows_count", 0)},
-            {"Metric": "Quarantined Rows Count", "Value": hygiene.get("quarantined_rows_count", len(quarantined_df) if quarantined_df is not None else 0)},
-            {"Metric": "Currency Symbols & Formats Sanitized", "Value": hygiene.get("currency_symbols_stripped", 0)},
-            {"Metric": "Missing / Null Values Imputed", "Value": hygiene.get("missing_values_imputed", 0)},
-            {"Metric": "Validated Date Timeline", "Value": hygiene.get("date_range", "N/A")},
-        ]
-        pd.DataFrame(audit_summary).to_excel(writer, sheet_name="Audit_Trail", startrow=0, index=False)
-
-        if hygiene.get("audit_log"):
-            df_log = pd.DataFrame({"Step": range(1, len(hygiene["audit_log"]) + 1), "Audit Action Completed": hygiene["audit_log"]})
-            df_log.to_excel(writer, sheet_name="Audit_Trail", startrow=len(audit_summary) + 3, index=False)
-
-        ws_audit = writer.sheets["Audit_Trail"]
-        for col in ws_audit.columns:
-            col_letter = get_column_letter(col[0].column)
-            max_len = max(len(str(cell.value or '')) for cell in col)
-            ws_audit.column_dimensions[col_letter].width = max(max_len + 4, 18)
-
-        # ── 3. Format Quarantined_Rows Sheet ─────────────────────────────────
-        if quarantined_df is not None and not quarantined_df.empty:
-            quarantined_df.to_excel(writer, sheet_name="Quarantined_Rows", index=False)
-            ws_quar = writer.sheets["Quarantined_Rows"]
-            q_max_row = len(quarantined_df) + 1
-            q_max_col = len(quarantined_df.columns)
-            q_max_col_letter = get_column_letter(q_max_col)
-
-            tab_quar = Table(displayName="QuarantinedRowsTable", ref=f"A1:{q_max_col_letter}{q_max_row}")
-            tab_quar.tableStyleInfo = TableStyleInfo(
-                name="TableStyleMedium4",
-                showFirstColumn=False,
-                showLastColumn=False,
-                showRowStripes=True,
-                showColumnStripes=False
-            )
-            ws_quar.add_table(tab_quar)
-            for col in ws_quar.columns:
-                col_letter = get_column_letter(col[0].column)
-                max_len = max(len(str(cell.value or '')) for cell in col)
-                ws_quar.column_dimensions[col_letter].width = max(max_len + 4, 14)
-        else:
-            df_clean_msg = pd.DataFrame([{"Status": "Zero Quarantined Rows", "Message": "All raw rows passed validation and were successfully retained in Cleaned_Data."}])
-            df_clean_msg.to_excel(writer, sheet_name="Quarantined_Rows", index=False)
-            ws_quar = writer.sheets["Quarantined_Rows"]
-            ws_quar.column_dimensions["A"].width = 24
-            ws_quar.column_dimensions["B"].width = 80
-
-    return output.getvalue()
-
-@st.cache_data(show_spinner=False)
-def get_cached_cleaned_workbook(_clean_df, hygiene, _quarantined_df, curr, data_sig):
-    return generate_cleaned_workbook(_clean_df, hygiene, _quarantined_df, currency_symbol=curr)
+from export_utils import generate_cleaned_workbook
 
 try:
-    report_data = get_cached_report(df, col_mapping, report_mode, curr_sym, data_signature)
+    report_data = get_cached_report(df, col_mapping, report_mode, curr_sym, data_signature, drop_dupes_opt, id_col_opt)
 except Exception as e:
     st.error(f"⚠️ **Could not process this spreadsheet:** {str(e)}\n\nPlease ensure your Date and Revenue columns contain valid values.")
     st.stop()
@@ -848,7 +735,25 @@ if uploaded_file:
     clean_export_filename = f"{orig_stem}_Cleaned.xlsx"
 else:
     clean_export_filename = f"{safe_filename}_Cleaned.xlsx"
-cleaned_wb_bytes = get_cached_cleaned_workbook(clean_export_df, report_data.get("hygiene", {}), quarantined_df, curr_sym, data_signature)
+wb_key = ("clean_wb", data_signature, curr_sym, drop_dupes_opt, id_col_opt, repr(sorted((col_mapping or {}).items())), report_mode)
+
+def render_clean_workbook_button(prefix):
+    """Build the workbook only when asked (it is slow for big files), then offer the download."""
+    if st.session_state.get("clean_wb_key") == wb_key and st.session_state.get("clean_wb_bytes"):
+        st.download_button(
+            label="📥 Download Cleaned Workbook (.xlsx)",
+            data=st.session_state["clean_wb_bytes"],
+            file_name=clean_export_filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True, key=f"{prefix}_dl",
+            help="3-tab Excel file: Cleaned Data, Audit Trail, and Quarantined Rows.",
+        )
+    elif st.button("🧾 Prepare Cleaned Workbook (.xlsx)", use_container_width=True, key=f"{prefix}_prep"):
+        with st.spinner("Building workbook..."):
+            st.session_state["clean_wb_bytes"] = generate_cleaned_workbook(
+                clean_export_df, report_data.get("hygiene", {}), quarantined_df, currency_symbol=curr_sym)
+            st.session_state["clean_wb_key"] = wb_key
+        st.rerun()
 
 kpis      = report_data["kpis"]
 monthly   = report_data["monthly"]
@@ -885,14 +790,7 @@ with st.sidebar:
                 st.markdown(f'<div style="font-size:11px;color:#94A3B8;margin-bottom:3px;">✔ {step}</div>', unsafe_allow_html=True)
 
         st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-        st.download_button(
-            label="📥 Download Cleaned Workbook (.xlsx)",
-            data=cleaned_wb_bytes,
-            file_name=clean_export_filename,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            help="Download 3-tab verified Excel file with Cleaned Data, Audit Trail, and Quarantined Rows."
-        )
+        render_clean_workbook_button("sb")
 
 clean_df = report_data.get("df", df)
 from analysis_engine import filter_df_by_time_scope, compute_kpis, category_breakdown, region_breakdown, get_time_scope_options, build_scoped_report
@@ -1037,7 +935,7 @@ with tab_dash:
     # ─────────────────────────────────────────────────────────────────────────────
     # EXECUTIVE TIME SCOPE & DATA STATUS BAR
     # ─────────────────────────────────────────────────────────────────────────────
-    status_suffix = "Certified" if hygiene.get("health_score", 100) == 100 else "Sanitized"
+    status_suffix = "Usable" if hygiene.get("health_score", 100) == 100 else "Usable (see audit)"
     hygiene_pill = f'<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);color:#34D399;margin-left:8px;">✔ {hygiene.get("clean_row_count", len(df)):,} Records {status_suffix}</span>'
 
     scope_options = time_scopes.get("scope_options") or get_time_scope_options(clean_df)
@@ -1057,14 +955,7 @@ with tab_dash:
             help="Filter entire dashboard (KPIs, Charts, Breakdowns, & Slide Deck) by time horizon"
         )
     with col_kpi_dl:
-        st.download_button(
-            label="📥 Cleaned Data (.xlsx)",
-            data=cleaned_wb_bytes,
-            file_name=clean_export_filename,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            help="Download 3-tab verified Excel workbook (Cleaned Data, Audit Trail, Quarantined Rows)."
-        )
+        render_clean_workbook_button("dash")
     st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
     if narrative.get("executive_summary"):

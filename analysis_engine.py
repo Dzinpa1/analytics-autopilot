@@ -85,7 +85,11 @@ def parse_single_numeric(val):
         val_float = float(s) * multiplier
         if is_negative:
             val_float = -val_float
-        was_formatted = (val_float != val)
+        try:
+            float(original)
+            was_formatted = False   # already a plain number stored as text
+        except ValueError:
+            was_formatted = True
         return val_float, False, was_formatted
     except ValueError:
         return 0.0, True, False
@@ -115,6 +119,37 @@ def sanitize_numeric_column(series: pd.Series, return_details: bool = False) -> 
     cleaned = pd.Series(vals, index=series.index, dtype=float)
 
     return (cleaned, mod_count, null_count) if return_details else (cleaned, mod_count)
+
+
+def sanitize_numeric_with_mask(series: pd.Series) -> tuple:
+    """Like sanitize_numeric_column, but unparseable/missing values stay NaN so the caller can
+    quarantine those rows instead of silently turning them into 0.
+    Returns (float_series_with_NaN, formatted_count, invalid_mask)."""
+    if pd.api.types.is_numeric_dtype(series):
+        out = pd.to_numeric(series, errors="coerce").astype(float)
+        return out, 0, out.isna()
+    parsed = [parse_single_numeric(v) for v in series]
+    invalid = pd.Series([p[1] for p in parsed], index=series.index)
+    vals = pd.Series([np.nan if p[1] else p[0] for p in parsed], index=series.index, dtype=float)
+    fmt_cnt = int(sum(1 for p in parsed if p[2]))
+    return vals, fmt_cnt, invalid
+
+
+def consolidate_case_variants(series: pd.Series) -> tuple:
+    """Merge spellings that differ only by case/whitespace ('north', 'NORTH' -> most common form).
+    Never changes capitalization of values that have no variants (so 'USB-C Hub' stays as is).
+    Returns (series, number_of_values_changed)."""
+    mask = series.notna()
+    if not mask.any():
+        return series, 0
+    vals = series[mask].astype(str)
+    key = vals.str.lower()
+    canon = vals.groupby(key).agg(lambda g: g.value_counts().idxmax())
+    new_vals = key.map(canon)
+    changed = int((new_vals != vals).sum())
+    out = series.copy()
+    out.loc[mask] = new_vals
+    return out, changed
 
 
 def normalize_text_series(series: pd.Series, to_title_case: bool = True) -> pd.Series:
@@ -1232,7 +1267,8 @@ def infer_mapping(data, report_mode: str = "Sales & Retail Performance") -> dict
     }
 
 
-def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: str = "Sales & Retail Performance", currency_symbol: str = "$", **kwargs) -> dict:
+def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: str = "Sales & Retail Performance", currency_symbol: str = "$",
+                         drop_exact_duplicates: bool = False, id_column: str = None, **kwargs) -> dict:
     """
     Core deterministic data engine. Takes any raw or mapped DataFrame,
     normalizes columns, strips currency characters, deduplicates, filters summary rows,
@@ -1263,35 +1299,48 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
         clean_df = clean_df[~empty_mask].copy()
         audit_trail.append(f"Dropped {empty_cnt} completely blank row(s)")
 
-    # 3. Filter out 'Total', 'Grand Total', 'Subtotal' summary rows
-    summary_keywords = {"total", "grand total", "subtotal", "sub total", "totals", "summary", "sum"}
+    # 3. Summary rows: only "Total"-style labels in the LAST 5 rows (never "sum"/"summary",
+    #    never mid-file) so real data such as a "Summary" campaign is not removed.
+    summary_keywords = {"total", "grand total", "subtotal", "sub total", "totals"}
     is_summary_row = pd.Series(False, index=clean_df.index)
+    tail_idx = clean_df.index[-5:]
     for col in clean_df.columns:
         if not pd.api.types.is_numeric_dtype(clean_df[col]):
             matches = clean_df[col].astype(str).str.strip().str.lower().isin(summary_keywords)
-            is_summary_row = is_summary_row | matches
+            is_summary_row = is_summary_row | (matches & clean_df.index.isin(tail_idx))
 
     if is_summary_row.any():
         summary_count = int(is_summary_row.sum())
         summary_rows = clean_df[is_summary_row].copy()
-        summary_rows["quarantine_reason"] = "Summary / Total row (prevented metric double-counting)"
+        summary_rows["quarantine_reason"] = "Summary / Total row at end of file (prevented double-counting)"
         quarantine_records.append(summary_rows)
         clean_df = clean_df[~is_summary_row].copy()
-        audit_trail.append(f"Excluded {summary_count} summary row(s) ('Total'/'Grand Total' to prevent double-counting)")
+        audit_trail.append(f"Excluded {summary_count} trailing summary row(s) ('Total'/'Grand Total') to prevent double-counting")
     else:
         summary_count = 0
 
-    # 4. Remove exact duplicate rows
-    dup_mask = clean_df.duplicated(keep="first")
+    # 4. Duplicates: identical rows are often legitimate (two identical sales). They are KEPT by
+    #    default and only removed when the user opts in, or by an explicit ID column.
+    dup_count = 0
+    detected_dups = int(clean_df.duplicated(keep="first").sum())
+    if id_column and id_column in clean_df.columns:
+        dup_mask = clean_df.duplicated(subset=[id_column], keep="first") & clean_df[id_column].notna()
+        dup_reason = f"Duplicate ID in '{id_column}'"
+    elif drop_exact_duplicates:
+        dup_mask = clean_df.duplicated(keep="first")
+        dup_reason = "Exact duplicate row (removed at user request)"
+    else:
+        dup_mask = pd.Series(False, index=clean_df.index)
+        dup_reason = ""
     if dup_mask.any():
         dup_count = int(dup_mask.sum())
         dup_rows = clean_df[dup_mask].copy()
-        dup_rows["quarantine_reason"] = "Exact duplicate row"
+        dup_rows["quarantine_reason"] = dup_reason
         quarantine_records.append(dup_rows)
         clean_df = clean_df[~dup_mask].copy()
-        audit_trail.append(f"Deduplicated {dup_count} exact redundant row(s)")
-    else:
-        dup_count = 0
+        audit_trail.append(f"Removed {dup_count} duplicate row(s): {dup_reason}")
+    elif detected_dups > 0:
+        audit_trail.append(f"{detected_dups} exact-duplicate row(s) detected and KEPT (they may be genuine repeat transactions; enable 'Remove exact duplicates' to drop them)")
 
     active_mapping = mapping if mapping is not None else infer_mapping(clean_df, report_mode=report_mode)
     has_mapped_profit = False
@@ -1333,7 +1382,10 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     if dropped_empty_rows > 0:
         audit_trail.append(f"Dropped {dropped_empty_rows} completely blank row(s)")
 
-    # Standardize Date column with mixed-format and numeric Excel serial resilience
+    synthetic_columns = []
+    pre_quarantine_len = len(clean_df)
+
+    # Standardize Date column. Invalid dates are QUARANTINED, never invented.
     if "Date" in clean_df.columns:
         if pd.api.types.is_numeric_dtype(clean_df["Date"]):
             try:
@@ -1345,108 +1397,114 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
                 parsed_dates = pd.to_datetime(clean_df["Date"], errors="coerce", format="mixed")
             except Exception:
                 parsed_dates = pd.to_datetime(clean_df["Date"], errors="coerce")
-
-        non_null_years = parsed_dates.dropna().dt.year
-        fallback_year = int(non_null_years.mode()[0]) if not non_null_years.empty else datetime.date.today().year
-        default_timestamp = pd.Timestamp(f"{fallback_year}-01-01")
-
-        null_dates = int(parsed_dates.isna().sum())
-        if null_dates > 0:
-            parsed_dates = parsed_dates.fillna(default_timestamp)
-            nulls_imputed_total += null_dates
-            audit_trail.append(f"Imputed {null_dates} invalid date timestamp(s) to {default_timestamp.strftime('%Y-%m-%d')}")
+        bad_dates = parsed_dates.isna()
+        if len(clean_df) and bad_dates.mean() > 0.5:
+            raise ValueError("More than half of the rows have a Date value that could not be read. Check that the Date column is mapped correctly.")
+        if bad_dates.any():
+            bad = clean_df[bad_dates].copy()
+            bad["quarantine_reason"] = "Missing or unreadable date"
+            quarantine_records.append(bad)
+            audit_trail.append(f"Quarantined {int(bad_dates.sum())} row(s) with missing/unreadable dates (not imputed)")
+            clean_df = clean_df[~bad_dates].copy()
+            parsed_dates = parsed_dates[~bad_dates]
         clean_df["Date"] = parsed_dates
     else:
         fallback_year = datetime.date.today().year
         clean_df["Date"] = pd.date_range(start=f"{fallback_year}-01-01", periods=len(clean_df), freq="D")
-        audit_trail.append("Generated baseline date timeline (no Date column mapped)")
+        synthetic_columns.append("Date")
+        audit_trail.append("No Date column mapped: a sequential placeholder timeline was generated, so time-based trends are NOT real")
 
-    # Harden numeric columns against currency symbols, accounting negatives, European decimals, and K/M suffixes
+    # Revenue: rows with missing/unreadable revenue are quarantined instead of counted as 0.
     if "Revenue" in clean_df.columns:
-        clean_df["Revenue"], sym_cnt, null_cnt = sanitize_numeric_column(clean_df["Revenue"], return_details=True)
+        rev, sym_cnt, rev_bad = sanitize_numeric_with_mask(clean_df["Revenue"])
+        if len(clean_df) and rev_bad.mean() > 0.5:
+            raise ValueError("More than half of the rows have a Revenue/Spend/Budget value that could not be read. Check the column mapping.")
         symbols_cleaned_total += sym_cnt
-        nulls_imputed_total += null_cnt
         if sym_cnt > 0:
-            audit_trail.append(f"Sanitized {sym_cnt} formatted value(s)/symbol(s) in Revenue")
-        if null_cnt > 0:
-            audit_trail.append(f"Imputed {null_cnt} missing/invalid Revenue value(s) to 0.0")
+            audit_trail.append(f"Standardized {sym_cnt} formatted value(s)/symbol(s) in Revenue")
+        if rev_bad.any():
+            bad = clean_df[rev_bad].copy()
+            bad["quarantine_reason"] = "Missing or unreadable Revenue value"
+            quarantine_records.append(bad)
+            audit_trail.append(f"Quarantined {int(rev_bad.sum())} row(s) with missing/unreadable Revenue (not zero-filled)")
+            clean_df = clean_df[~rev_bad].copy()
+            rev = rev[~rev_bad]
+        clean_df["Revenue"] = rev
     else:
-        clean_df["Revenue"] = 0.0
+        raise ValueError("No Revenue / Spend / Budget column is mapped.")
+
+    def _opt_numeric(col, label):
+        nonlocal symbols_cleaned_total, nulls_imputed_total
+        cleaned, fmt_cnt, bad = sanitize_numeric_with_mask(clean_df[col])
+        symbols_cleaned_total += fmt_cnt
+        if fmt_cnt > 0:
+            audit_trail.append(f"Standardized {fmt_cnt} formatted value(s) in {label}")
+        n_bad = int(bad.sum())
+        if n_bad > 0:
+            nulls_imputed_total += n_bad
+            audit_trail.append(f"Treated {n_bad} missing/invalid {label} value(s) as 0 (optional column; rows kept)")
+        return cleaned.fillna(0.0)
 
     if has_mapped_cost and "Cost" in clean_df.columns:
-        clean_df["Cost"], sym_cnt, null_cnt = sanitize_numeric_column(clean_df["Cost"], return_details=True)
-        symbols_cleaned_total += sym_cnt
-        nulls_imputed_total += null_cnt
-        if sym_cnt > 0:
-            audit_trail.append(f"Sanitized {sym_cnt} formatted value(s) in Cost")
-        if null_cnt > 0:
-            audit_trail.append(f"Imputed {null_cnt} missing/invalid Cost value(s) to 0.0")
+        clean_df["Cost"] = _opt_numeric("Cost", "Cost")
     else:
         clean_df["Cost"] = 0.0
+        synthetic_columns.append("Cost")
 
     if has_mapped_profit and "Profit" in clean_df.columns:
-        clean_df["Profit"], sym_cnt, null_cnt = sanitize_numeric_column(clean_df["Profit"], return_details=True)
-        symbols_cleaned_total += sym_cnt
-        nulls_imputed_total += null_cnt
+        clean_df["Profit"] = _opt_numeric("Profit", "Profit/Return/Actual")
         has_profit = True
-        if sym_cnt > 0:
-            audit_trail.append(f"Sanitized {sym_cnt} formatted value(s) in Profit")
-        if null_cnt > 0:
-            audit_trail.append(f"Imputed {null_cnt} missing/invalid Profit value(s) to 0.0")
     elif has_mapped_cost and "Cost" in clean_df.columns and "Sales" in (report_mode or "Sales"):
         clean_df["Profit"] = clean_df["Revenue"] - clean_df["Cost"]
         has_profit = True
-        audit_trail.append("Derived Net Profit mathematically (Revenue - Cost)")
+        audit_trail.append("Derived Profit as Revenue - Cost (no Profit column mapped)")
     else:
         clean_df["Profit"] = 0.0
         has_profit = False
+        synthetic_columns.append("Profit")
 
     if "Conversions" in clean_df.columns:
-        clean_df["Conversions"], c_cnt, c_nulls = sanitize_numeric_column(clean_df["Conversions"], return_details=True)
-        symbols_cleaned_total += c_cnt
-        nulls_imputed_total += c_nulls
-        if c_nulls > 0:
-            audit_trail.append(f"Imputed {c_nulls} missing/invalid Conversions value(s) to 0.0")
+        clean_df["Conversions"] = _opt_numeric("Conversions", "Conversions")
 
+    # Quantity: kept exactly as provided (no clipping, no invented default).
     if "Quantity" in clean_df.columns:
-        clean_df["Quantity"], q_cnt, q_nulls = sanitize_numeric_column(clean_df["Quantity"], return_details=True)
-        clean_df["Quantity"] = clean_df["Quantity"].clip(lower=1)
-        symbols_cleaned_total += q_cnt
-        nulls_imputed_total += q_nulls
-        if q_cnt > 0:
-            audit_trail.append(f"Sanitized {q_cnt} formatted value(s) in Quantity")
-    else:
-        clean_df["Quantity"] = 1
+        clean_df["Quantity"] = _opt_numeric("Quantity", "Quantity")
 
     clean_row_count = len(clean_df)
-    dropped_rows_total = raw_row_count - clean_row_count
+    quarantined_total = raw_row_count - clean_row_count
+    dropped_rows_total = quarantined_total
     retention_pct = round((clean_row_count / raw_row_count * 100), 1) if raw_row_count > 0 else 100.0
+    if clean_row_count == 0:
+        raise ValueError("No usable rows remain after validation. Check the Date and Revenue column mapping.")
 
     min_date = clean_df["Date"].min()
     max_date = clean_df["Date"].max()
     date_range_str = f"{min_date.strftime('%b %d, %Y')} – {max_date.strftime('%b %d, %Y')}" if pd.notna(min_date) else "N/A"
 
-    audit_trail.insert(0, f"Ingested {raw_row_count:,} raw records ({clean_row_count:,} parsed, {retention_pct}% retained)")
-    audit_trail.append(f"Validated time series coverage: {date_range_str}")
-    audit_trail.append(f"Deterministic calculation of {report_mode} metrics completed")
+    audit_trail.insert(0, f"Ingested {raw_row_count:,} raw records; {clean_row_count:,} usable ({retention_pct}% retained)")
+    audit_trail.append(f"Time coverage: {date_range_str}")
 
-    # 5. Normalize text columns across the entire dataset (strip leading/trailing spaces and collapse internal double spaces)
-    key_categories = {"category", "region", "product", "channel", "department", "cost_center"}
+    # 5. Text columns: trim/collapse whitespace and merge case-only variants. No Title Case.
+    case_merged = 0
     for col in clean_df.columns:
         if not pd.api.types.is_numeric_dtype(clean_df[col]) and not pd.api.types.is_datetime64_any_dtype(clean_df[col]):
-            should_title = str(col).lower() in key_categories
-            clean_df[col] = normalize_text_series(clean_df[col], to_title_case=should_title)
+            clean_df[col] = normalize_text_series(clean_df[col], to_title_case=False)
+            if str(col).lower() in {"category", "region", "product", "channel", "department", "cost_center"}:
+                clean_df[col], n_changed = consolidate_case_variants(clean_df[col])
+                case_merged += n_changed
+    audit_trail.append("Trimmed whitespace in text fields" + (f"; merged {case_merged} case-only spelling variant(s)" if case_merged else ""))
 
     if "Category" not in clean_df.columns:
         clean_df["Category"] = "All Categories"
-
+        synthetic_columns.append("Category")
     if "Region" not in clean_df.columns:
         clean_df["Region"] = "All Regions"
-
+        synthetic_columns.append("Region")
     if "Product" not in clean_df.columns:
         clean_df["Product"] = clean_df["Category"]
-
-    audit_trail.append("Sanitized text fields (trimmed whitespace, collapsed double spaces & applied Title Case)")
+        synthetic_columns.append("Product")
+    if synthetic_columns:
+        audit_trail.append("Placeholder column(s) created for analysis (not in your file): " + ", ".join(synthetic_columns))
 
     # 6. Assemble quarantined rows dataset
     if quarantine_records:
@@ -1454,17 +1512,18 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
     else:
         quarantined_df = pd.DataFrame(columns=list(clean_df.columns) + ["quarantine_reason"])
 
-    total_modifications = symbols_cleaned_total + nulls_imputed_total + dropped_rows_total + dup_count + summary_count
-    if total_modifications == 0:
-        health_score = 100
-        health_status = "Certified Clean"
-    elif nulls_imputed_total == 0 and dropped_rows_total == 0 and dup_count == 0 and summary_count == 0:
-        health_score = 99
-        health_status = f"High Integrity ({symbols_cleaned_total} formatted symbols sanitized)"
+    # Honest health score: driven by rows lost and values assumed, not by cosmetic fixes.
+    quarantined_pct = (len(quarantined_df) / raw_row_count * 100) if raw_row_count else 0.0
+    penalty = round(quarantined_pct) + min(10, nulls_imputed_total) + (5 if "Date" in synthetic_columns else 0)
+    health_score = int(max(0, 100 - penalty))
+    if len(quarantined_df) == 0 and nulls_imputed_total == 0 and "Date" not in synthetic_columns:
+        health_status = "No issues found" if symbols_cleaned_total == 0 else f"Clean ({symbols_cleaned_total} formatted values standardized)"
     else:
-        penalty = min(25, (nulls_imputed_total * 2) + (dropped_rows_total * 4) + (dup_count * 2) + (summary_count * 3))
-        health_score = max(70, 100 - penalty)
-        health_status = f"Sanitized ({total_modifications} modifications)"
+        bits = []
+        if len(quarantined_df): bits.append(f"{len(quarantined_df)} row(s) quarantined")
+        if nulls_imputed_total: bits.append(f"{nulls_imputed_total} value(s) assumed 0")
+        if "Date" in synthetic_columns: bits.append("placeholder timeline used")
+        health_status = "Review: " + ", ".join(bits)
 
     hygiene = {
         "raw_row_count": raw_row_count,
@@ -1474,8 +1533,10 @@ def build_report_from_df(df: pd.DataFrame, mapping: dict = None, report_mode: st
         "currency_symbols_stripped": symbols_cleaned_total,
         "missing_values_imputed": nulls_imputed_total,
         "duplicates_removed": dup_count,
+        "duplicates_detected": detected_dups,
         "summary_rows_removed": summary_count,
         "quarantined_rows_count": len(quarantined_df),
+        "synthetic_columns": synthetic_columns,
         "date_range": date_range_str,
         "health_score": health_score,
         "health_status": health_status,
