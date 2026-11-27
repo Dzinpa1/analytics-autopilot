@@ -191,7 +191,7 @@ def analyze_trend(df, schema, spec, sym="") -> Finding:
     y = use["value"].to_numpy(dtype=float)
     x = np.arange(len(y), dtype=float)
     first, last = y[0], y[-1]
-    change = (last - first) / abs(first) * 100 if first != 0 else np.nan
+    change = (last - first) / abs(first) * 100 if (first > 0 and last >= 0) else np.nan
     slope, intercept = np.polyfit(x, y, 1)
     fitted = slope * x + intercept
     ss_res, ss_tot = float(((y - fitted) ** 2).sum()), float(((y - y.mean()) ** 2).sum())
@@ -206,7 +206,7 @@ def analyze_trend(df, schema, spec, sym="") -> Finding:
                       f"({pct(change)}), a steady {'increase' if slope > 0 else 'decline'} of about {abs(rel_slope):.1f}% of the average per {gname}.")
     else:
         f.headline = (f"{m} shows no clear trend: it moved between {fmt(use['value'].min(), money, sym)} and {fmt(use['value'].max(), money, sym)} "
-                      f"per {gname}, ending {pct(change)} versus the start.")
+                      f"per {gname}" + (f", ending {pct(change)} versus the start." if not np.isnan(change) else "."))
         f.confidence = "medium"
     f.details = [f"Highest {gname}: {best['label']} ({fmt(best['value'], money, sym)}). Lowest: {worst['label']} ({fmt(worst['value'], money, sym)}).",
                  f"Straight-line fit explains {r2 * 100:.0f}% of the variation across {len(use)} {gname}s."]
@@ -242,7 +242,7 @@ def analyze_compare(df, schema, spec, sym="") -> Finding:
     asc = spec.direction == "low"
     g = g.sort_values("value", ascending=asc).reset_index(drop=True)
     total = float(g["value"].sum()) if agg in ("sum", "count") else np.nan
-    if agg in ("sum", "count") and total != 0:
+    if agg in ("sum", "count") and total > 0 and (g["value"] >= 0).all():
         g["share_pct"] = (g["value"] / total * 100).round(1)
     top, bottom = g.iloc[0], g.iloc[-1]
     label = {"sum": "total", "mean": "average", "median": "median", "count": "number of records for"}[agg]
@@ -306,11 +306,11 @@ def analyze_change(df, schema, spec, sym="") -> Finding:
         return f
     vb, vf = _agg_series(base[m], agg), _agg_series(focus[m], agg)
     delta = vf - vb
-    pc = delta / abs(vb) * 100 if vb else np.nan
+    pc = delta / abs(vb) * 100 if (vb and vb > 0 and vf >= 0) else np.nan   # % is meaningless across zero/negative bases
     verb = "rose" if delta > 0 else "fell" if delta < 0 else "did not change"
     label = {"sum": "total", "mean": "average", "median": "median", "count": "record count of"}[agg]
     f.headline = (f"{label.capitalize()} {m} {verb} from {fmt(vb, money, sym)} in {spec.base_label} to {fmt(vf, money, sym)} in {spec.focus_label}"
-                  f" ({pct(pc)}, {fmt(delta, money, sym)}).")
+                  f" ({pct(pc) + ', ' if not np.isnan(pc) else ''}{fmt(delta, money, sym)}).")
     f.numbers = {"base": vb, "focus": vf, "delta": delta, "pct": None if np.isnan(pc) else float(pc)}
     low = spec.text.lower()
     asked_down = any(w in low for w in ("drop", "fall", "fell", "decline", "decrease", "dip", "went down", "lower", "worse"))
@@ -456,9 +456,9 @@ def analyze_composition(df, schema, spec, sym="") -> Finding:
         f.caveats.append(f"{m} has negative values, so shares can add up to more than 100% for some groups.")
     g = sub.groupby(dim)[m].sum().sort_values(ascending=False)
     total = float(g.sum())
-    if len(g) < 2 or total == 0:
+    if len(g) < 2 or total <= 0:
         f.status, f.confidence = "blocked", "low"
-        f.headline = "There is nothing to break down (one group or a zero total)."
+        f.headline = "There is nothing to break down (one group, or the total is zero or negative so shares would be meaningless)."
         return f
     share = (g / total * 100)
     top3 = float(share.head(3).sum())

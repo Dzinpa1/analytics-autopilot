@@ -385,3 +385,15 @@ class TestStressRegressions(unittest.TestCase):
         df = pd.DataFrame({"Order Date": pd.date_range("2024-01-01", periods=30, freq="3D").strftime("%d-%b-%y"),
                            "Amount": np.arange(30) * 10.0 + 100})
         self.assertEqual(prepare_frame(df).schema.date, "Order Date")
+
+
+class TestNegativeValues(unittest.TestCase):
+    def test_no_percent_or_share_across_negative_totals(self):
+        rng = np.random.default_rng(1)
+        df = pd.DataFrame({"Date": pd.date_range("2024-01-01", periods=40, freq="10D"),
+                           "Profit": np.r_[-5.0, rng.normal(-3, 5, 39)], "Reg": list("AB") * 20})
+        p = prepare_frame(df)
+        r = ob.run_objective(ob.plan_objective("What share of Profit comes from each Reg?", p, "o1"), p, "$").finding
+        self.assertEqual(r.status, "blocked")
+        r = ob.run_objective(ob.plan_objective("Which Reg has the highest Profit?", p, "o1"), p, "$").finding
+        self.assertNotIn("% of the total", r.headline)
