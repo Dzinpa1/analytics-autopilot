@@ -6,6 +6,8 @@ All numbers come from deterministic code (analyses.py); nothing here invents fig
 import hashlib
 import html
 import re
+from typing import Optional
+
 import pandas as pd
 import streamlit as st
 
