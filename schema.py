@@ -14,7 +14,8 @@ from analysis_engine import parse_single_numeric, consolidate_case_variants
 
 BLANK_TOKENS = {"", "n/a", "na", "n.a.", "-", "--", "—", "null", "none", "nan", "nil", "#n/a", "?"}
 DATE_NAME_HINTS = ("date", "day", "period", "month", "time", "year", "week", "quarter", "timestamp")
-ID_NAME_HINTS = ("id", "code", "number", "no", "ref", "sku", "invoice", "key", "uuid")
+STRICT_ID_HINTS = ("id", "uuid", "sku", "code", "invoice", "ref")
+ID_NAME_HINTS = STRICT_ID_HINTS + ("number", "no", "key")
 SUMMARY_KEYWORDS = {"total", "grand total", "subtotal", "sub total", "totals"}
 # A value only counts as numeric if its WHOLE shape is number-like (symbol/code prefix, digits with
 # separators, optional K/M/B/T or % suffix, optional brackets) - not "free text number 5".
@@ -208,6 +209,8 @@ def prepare_frame(raw: pd.DataFrame, date_col: Optional[str] = None, drop_exact_
                 info.role = "flag"
             elif integer_valued and n_unique <= 60 and _name_has(c, ("year", "month", "quarter", "week")):
                 info.role = "dimension"       # calendar parts stored as numbers are labels, not quantities
+            elif integer_valued and len(nn) and _name_has(c, STRICT_ID_HINTS):
+                info.role = "id"
             elif integer_valued and len(nn) and n_unique / len(nn) > 0.9 and _name_has(c, ID_NAME_HINTS):
                 info.role = "id"
             elif (integer_valued and len(nn) > 20 and n_unique == len(nn) and nn.is_monotonic_increasing

@@ -11,6 +11,39 @@ import objective_charts
 CONF_TEXT = {"high": "Confidence: high", "medium": "Confidence: medium", "low": "Confidence: low"}
 
 
+def _kpi_slide(prs, kpis, title, accent):
+    """Render a KPI summary slide that scales cleanly beyond 4 cards (up to 8 per slide)."""
+    from pptx.util import Pt
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_rect(slide, 0, 0, 13.33, 1.0, accent)
+    tc = get_contrast_color(accent)
+    _add_textbox(slide, "Executive Highlights · Key Metrics", 0.5, 0.12, 6, 0.3, size=10, color=tc)
+    _add_textbox(slide, f"{_short(title, 65)} — KPI Matrix", 0.5, 0.36, 12.3, 0.55, size=22, bold=True, color=tc)
+
+    cards = list(kpis or [])[:8]
+    if not cards:
+        return
+    n = len(cards)
+    cols = 3 if n in (5, 6) else min(4, n)
+    rows = (n + cols - 1) // cols
+    margin_x, gap_x = 0.5, 0.25
+    usable_w = 13.33 - 2 * margin_x
+    card_w = (usable_w - gap_x * (cols - 1)) / cols
+    start_y, gap_y = 1.35, 0.3
+    card_h = 2.4 if rows == 2 else 3.2
+    for idx, k in enumerate(cards):
+        r, c = divmod(idx, cols)
+        x = margin_x + c * (card_w + gap_x)
+        y = start_y + r * (card_h + gap_y)
+        _add_rect(slide, x, y, card_w, card_h, C_LIGHT)
+        _add_rect(slide, x, y, card_w, 0.08, accent)
+        _add_textbox(slide, str(k.get("label", "")).upper(), x + 0.18, y + 0.22, card_w - 0.36, 0.4, size=10, bold=True, color=C_GRAY)
+        _add_textbox(slide, str(k.get("value", "n/a")), x + 0.18, y + 0.72, card_w - 0.36, 0.8, size=24 if rows == 2 else 28, bold=True, color=C_DARK)
+        pill = str(k.get("pill", ""))
+        if pill:
+            _add_textbox(slide, pill, x + 0.18, y + card_h - 0.55, card_w - 0.36, 0.4, size=10, color=C_GRAY, italic=True)
+
+
 def _chart_png(finding, tmpdir, idx, brand_color=None):
     fig = objective_charts.figure_for(finding, dark=False, brand_color=brand_color)
     if fig is None:
@@ -92,7 +125,7 @@ def _notes_slide(prs, results, quality_notes, accent):
 
 
 def build_objective_deck(results, title="Analysis Report", quality_notes=None, brand_color=None,
-                         brand_name=None, logo_path=None, output_dir=None) -> str:
+                         brand_name=None, logo_path=None, output_dir=None, kpis=None) -> str:
     """results: list of ObjectiveResult. Returns the saved .pptx path."""
     accent = hex_to_rgb(brand_color) if brand_color else C_BLUE
     prs = Presentation()
@@ -100,6 +133,8 @@ def build_objective_deck(results, title="Analysis Report", quality_notes=None, b
     n_ok = sum(1 for r in results if r.finding.status in ("ok", "caution"))
     slide_title(prs, report_name=title, subtitle=f"{n_ok} of {len(results)} question(s) answered",
                 accent_color=accent, logo_path=logo_path, brand_name=brand_name)
+    if kpis:
+        _kpi_slide(prs, kpis, title, accent)
     with tempfile.TemporaryDirectory() as tmp:
         for i, r in enumerate(results, 1):
             _answer_slide(prs, r, i, accent, tmp, brand_color=brand_color)

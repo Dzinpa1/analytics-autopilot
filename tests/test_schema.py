@@ -98,5 +98,15 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(p.schema.date, "Date")
         self.assertEqual(p.df["Date"].iloc[0], pd.Timestamp("2024-01-01"))
 
+    def test_repeating_numeric_id_is_not_a_measure(self):
+        df = pd.DataFrame({
+            "Retailer ID": [1185732, 1189203, 1185732, 1197831] * 25,
+            "Total Sales": [1000, 1500, 1200, 1800] * 25,
+        })
+        p = prepare_frame(df)
+        self.assertEqual(p.schema.role_of("Retailer ID"), "id")
+        self.assertNotIn("Retailer ID", p.schema.measures)
+        self.assertIn("Total Sales", p.schema.measures)
+
 if __name__ == "__main__":
     unittest.main()

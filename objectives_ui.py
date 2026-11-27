@@ -4,13 +4,20 @@ Flow: data check -> missing-data decisions -> add questions -> answers (with pla
 All numbers come from deterministic code (analyses.py); nothing here invents figures.
 """
 import hashlib
+import html
+import re
 import pandas as pd
 import streamlit as st
 
+import analyses as an
 import objectives as ob
 from objective_charts import figure_for
 from data_quality import missing_profile
 from schema import prepare_frame
+
+
+def _h(val):
+    return html.escape(str(val)) if val is not None else ""
 
 STATUS_LABEL = {"ok": "Answered", "caution": "Answered, read the notes", "decision": "Needs your decision",
                 "blocked": "Cannot answer", "error": "Error"}
@@ -276,8 +283,11 @@ def render_objectives(df: pd.DataFrame, source_notes=(), dataset_name: str = "Yo
         st.error("Your choices removed every row. Pick a gentler option for at least one column.")
         return
 
+    prev_q_count = len(st.session_state.get("oq_questions", []))
     _section_questions(hp)
     qs = st.session_state["oq_questions"]
+    if prev_q_count == 0 and len(qs) > 0:
+        st.rerun()
     st.subheader("4. Answers")
     if not qs:
         st.info("Add at least one question above, or click one of the ideas.")
@@ -315,3 +325,416 @@ def render_objectives(df: pd.DataFrame, source_notes=(), dataset_name: str = "Yo
             st.error(f"Could not build the slide deck: {e}")
     st.download_button("📥 Download the cleaned data (.csv)", hp.df.to_csv(index=False).encode("utf-8-sig"),
                        file_name="cleaned_data.csv", mime="text/csv", use_container_width=True, key="oq_dl_csv")
+
+
+# ================================================================================================
+# UNIFIED 3-TAB DASHBOARD & STUDIO HELPERS (Used by app.py)
+# ================================================================================================
+def _format_measure_value(col: str, val, currency: str) -> str:
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return "n/a"
+    words = an.col_words(col)
+    if (words & {"margin", "pct", "percent"}) or "%" in str(col):
+        pct_val = val * 100.0 if abs(val) <= 1.0 else val
+        return f"{pct_val:.1f}%"
+    return an.fmt(val, money=an.is_money(col), sym=currency)
+
+
+def _measure_kpi_card(df: pd.DataFrame, schema, col: str, agg: str, currency: str) -> dict:
+    s = pd.to_numeric(df[col], errors="coerce")
+    valid = s.dropna()
+    n_total = len(df)
+    n_valid = len(valid)
+    coverage = (n_valid / n_total * 100.0) if n_total else 0.0
+    val = an._agg_series(s, agg) if n_valid else None
+    agg_prefix = {"sum": "Total", "mean": "Avg", "median": "Median", "count": "Count"}.get(agg, "")
+    label = f"{agg_prefix} {col}" if agg != "sum" or an.col_words(col) & {"revenue", "sales", "cost", "profit"} else f"Total {col}"
+    if col.lower().startswith(("total ", "avg ", "average ", "median ")):
+        label = col
+    val_str = f"{int(val):,}" if agg == "count" and val is not None else _format_measure_value(col, val, currency)
+
+    pill = f"{n_valid:,} valid rows"
+    pill_class = "pill-purple"
+    if schema.date and schema.date in df.columns and n_valid >= 2:
+        try:
+            tbl, _ = an.period_table(df, schema.date, col, agg)
+            comp = tbl[~tbl["partial"] & tbl["value"].notna()]
+            if len(comp) >= 2:
+                prev_v = float(comp["value"].iloc[-2])
+                curr_v = float(comp["value"].iloc[-1])
+                if prev_v > 0 and curr_v >= 0:
+                    delta = (curr_v - prev_v) / prev_v * 100.0
+                    arrow = "↑" if delta >= 0 else "↓"
+                    good = (delta <= 0) if an.lower_is_better(col) else (delta >= 0)
+                    pill_class = "pill-green" if good else "pill-red"
+                    pill = f"{arrow} {delta:+.1f}% vs prior period"
+        except Exception:
+            pass
+    if coverage < 99.5 and "vs prior" not in pill:
+        pill = f"{coverage:.0f}% coverage ({n_valid:,} rows)"
+        pill_class = "pill-amber" if coverage < 80 else "pill-blue"
+
+    return {"label": label, "value": val_str, "pill": pill, "pill_class": pill_class, "col": col, "agg": agg}
+
+
+def compute_objective_kpis(results, prepared, currency: str = "", is_auto: bool = False) -> list:
+    """Build KPI cards strictly relevant to active objectives (scales cleanly beyond 4 cards)."""
+    df, schema = prepared.df, prepared.schema
+    cards, seen = [], set()
+
+    for res in results:
+        sp = res.spec
+        for col in (sp.measure, sp.measure2):
+            if not col or col not in df.columns:
+                continue
+            agg = sp.agg if (col == sp.measure and sp.agg in ("sum", "mean", "median", "count")) else an.default_agg(col)
+            key = (col, agg)
+            if key in seen:
+                continue
+            seen.add(key)
+            cards.append(_measure_kpi_card(df, schema, col, agg, currency))
+
+    if is_auto:
+        # In Auto-Expert mode, populate up to 4 clean non-ID measures if fewer were triggered by suggestions
+        ranked_measures = sorted(
+            [m for m in schema.measures if m in df.columns],
+            key=lambda c: (schema.columns[c].missing_pct, -float(df[c].abs().sum(skipna=True))),
+        )
+        for col in ranked_measures:
+            if len(cards) >= 4:
+                break
+            agg = an.default_agg(col)
+            if (col, agg) not in seen:
+                seen.add((col, agg))
+                cards.append(_measure_kpi_card(df, schema, col, agg, currency))
+
+    if not cards or (is_auto and len(cards) < 4):
+        cards.append({
+            "label": "Validated Records",
+            "value": f"{len(df):,}",
+            "pill": f"{len(schema.dimensions)} grouping columns" if schema.dimensions else "Active scope",
+            "pill_class": "pill-amber",
+        })
+    return cards
+
+
+def render_kpi_grid_html(kpi_cards: list) -> str:
+    """Responsive KPI grid supporting 1..N cards cleanly (no squishing when >4)."""
+    n = len(kpi_cards)
+    cols = 3 if n in (5, 6) else min(4, max(1, n))
+    cards_html = "".join(
+        f'<div class="kpi-card">'
+        f'<div class="kpi-label">{_h(c["label"])}</div>'
+        f'<div class="kpi-value">{_h(c["value"])}</div>'
+        f'<div class="kpi-pill {_h(c.get("pill_class", "pill-blue"))}">{_h(c.get("pill", ""))}</div>'
+        f'</div>'
+        for c in kpi_cards
+    )
+    return f'<div class="kpi-row" style="grid-template-columns: repeat({cols}, 1fr);">{cards_html}</div>'
+
+
+def build_objective_briefing(results, prepared, is_auto: bool = False) -> str:
+    answered = [r for r in results if r.finding.status in ("ok", "caution") and r.finding.headline]
+    if not answered:
+        return f"Loaded {len(prepared.df):,} validated records across {len(prepared.df.columns)} columns. Review missing-data decisions or adjust your objectives in the Studio tab."
+    prefix = "Auto-Expert summary across your key columns: " if is_auto else ""
+    snippets = [r.finding.headline.rstrip(".") for r in answered[:2]]
+    return prefix + ". ".join(snippets) + "."
+
+
+def build_objective_takeaways(results) -> list:
+    items = []
+    icons = ["📈", "🏆", "🧭", "⚡", "📌", "🔍"]
+    for i, r in enumerate(results[:3]):
+        f = r.finding
+        if f.status in ("ok", "caution"):
+            body = f.headline
+            if f.details:
+                body += " " + f.details[0]
+            items.append({"icon": icons[i % len(icons)], "title": r.spec.text[:60], "body": body})
+        else:
+            items.append({"icon": "⚠️", "title": r.spec.text[:60], "body": f.headline})
+    return items
+
+
+def render_studio_tab(df: pd.DataFrame, currency: str = ""):
+    """Render Tab 3 (Objectives & Data Studio) controls and return live prepared state + results."""
+    sig = _sig(df)
+    _state_reset_if_new(sig)
+    prep = _prepare(df, sig)
+
+    _section_data(prep)
+    policies, derive = _section_missing(prep, sig)
+    handled = ob.apply_handling(prep, policies, derive)
+    hp = handled.prepared
+    notes = [n for n in handled.log if n]
+    if notes:
+        with st.expander(f"What these choices changed ({len(notes)})"):
+            for n in notes:
+                st.write("• " + n)
+    if handled.estimated_cells:
+        st.info("Filled values are estimates: " + ", ".join(f"{c} ({n} cells)" for c, n in handled.estimated_cells.items()) + ". Answers using them say so.")
+
+    if len(hp.df) == 0:
+        st.error("Your choices removed every row. Pick a gentler option for at least one column.")
+        return sig, prep, handled, hp, [], [], False
+
+    prev_q_count = len(st.session_state.get("oq_questions", []))
+    _section_questions(hp)
+    qs = st.session_state["oq_questions"]
+    if prev_q_count == 0 and len(qs) > 0:
+        st.rerun()
+
+    if qs:
+        c_lbl, c_clr = st.columns([4, 1])
+        c_lbl.caption(f"{len(qs)} custom objective(s) active — driving your Executive Dashboard & Slide Deck.")
+        if c_clr.button("Clear all objectives", key=f"oq_clr_all_{sig}", use_container_width=True):
+            st.session_state["oq_questions"] = []
+            st.session_state["oq_over"] = {}
+            st.session_state["oq_accept"] = set()
+            st.session_state.pop("oq_deck", None)
+            st.rerun()
+
+    specs, errors = [], []
+    for q in qs:
+        spec, err = _plan(hp, q)
+        (specs.append(spec) if spec else errors.append((q, err)))
+    for q, err in errors:
+        st.error(f"'{q['text']}': {err}")
+
+    user_results = ob.run_objectives(specs, hp, currency, st.session_state["oq_accept"]) if specs else []
+    if user_results:
+        st.markdown("#### Active Objectives & Plan Controls")
+        for i, res in enumerate(user_results, 1):
+            f, sp = res.finding, res.spec
+            with st.container(border=True):
+                st.markdown(f"**Q{i}. {sp.text}**")
+                st.caption(f"{STATUS_LABEL.get(f.status, f.status)}  ·  {KIND_LABEL.get(sp.kind, sp.kind)}  ·  confidence: {f.confidence}")
+                if f.status in ("decision", "blocked") and not res.feasibility.structural:
+                    for r_txt in res.feasibility.reasons:
+                        st.warning(r_txt)
+                    if st.button("Answer anyway, I accept the risk", key=f"oq_acc_tab_{sp.id}"):
+                        st.session_state["oq_accept"].add(sp.id)
+                        st.session_state.pop("oq_deck", None)
+                        st.rerun()
+                else:
+                    st.write(f.headline)
+                _adjust_widget(hp, sp, sp.id)
+                if st.button("🗑 Remove this question", key=f"oq_rm_tab_{sp.id}"):
+                    _remove_question(sp.id)
+                    st.rerun()
+
+    return sig, prep, handled, hp, specs, user_results, len(qs) == 0
+
+
+def run_auto_expert_objectives(hp, currency: str = "", limit: int = 4) -> list:
+    """When the user hasn't specified objectives yet, select expert analyses from schema."""
+    if not hp.schema.measures:
+        return []
+    suggested = ob.suggest_objectives(hp, limit=limit)
+    specs = []
+    for i, text in enumerate(suggested, 1):
+        try:
+            specs.append(ob.plan_objective(text, hp, obj_id=f"auto_{i}"))
+        except ob.PlanError:
+            continue
+    return ob.run_objectives(specs, hp, currency)
+
+
+def render_objective_dashboard_tab(
+    hp,
+    results,
+    kpi_cards,
+    scope_labels,
+    sel_scope_idx,
+    is_auto: bool,
+    currency: str,
+    brand_color: str,
+    render_clean_btn_fn,
+):
+    """Render Tab 1 (Executive Dashboard) in Linear Obsidian style driven by active objectives."""
+    mode_badge = "✦ Auto-Expert Analysis" if is_auto else f"🎯 {len(results)} Active Objective{'s' if len(results) != 1 else ''}"
+    hygiene_pill = (
+        f'<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;'
+        f'background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);color:#34D399;margin-left:8px;">'
+        f'✔ {len(hp.df):,} Records Usable</span>'
+    )
+
+    col_head, col_scope, col_dl = st.columns([2.6, 1.1, 0.9])
+    with col_head:
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:8px;padding-top:4px;">'
+            f'<span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px;'
+            f'background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#A5B4FC;">'
+            f'{_h(mode_badge)}</span>{hygiene_pill}</div>',
+            unsafe_allow_html=True,
+        )
+    with col_scope:
+        if len(scope_labels) > 1:
+            st.selectbox(
+                "Executive Time Scope",
+                scope_labels,
+                index=sel_scope_idx,
+                key="global_time_scope",
+                label_visibility="collapsed",
+                help="Filter dashboard KPIs, charts, and slides by time horizon",
+            )
+    with col_dl:
+        render_clean_btn_fn("obj_dash")
+
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+    if is_auto and results:
+        st.caption("Showing expert auto-analysis tailored to your columns. Switch to **🎯 Objectives & Data Studio** to ask custom questions or set specific metrics.")
+
+    pending_decisions = [r for r in results if r.finding.status in ("decision", "blocked") and not r.feasibility.structural]
+    if pending_decisions:
+        st.warning(
+            f"⚠️ {len(pending_decisions)} question(s) paused due to missing values. "
+            f"Open the **🎯 Objectives & Data Studio** tab to fill blanks or accept the risk."
+        )
+
+    briefing = build_objective_briefing(results, hp, is_auto=is_auto)
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(56,189,248,0.04));'
+        f'border:1px solid rgba(99,102,241,0.22);border-radius:8px;padding:12px 18px;margin-bottom:18px;'
+        f'font-size:13px;color:#E2E8F0;line-height:1.6;">'
+        f'<span style="font-weight:700;color:#A5B4FC;margin-right:6px;">✦ EXECUTIVE BRIEFING:</span>'
+        f'{_h(briefing)}</div>',
+        unsafe_allow_html=True,
+    )
+
+    if kpi_cards:
+        st.markdown(render_kpi_grid_html(kpi_cards), unsafe_allow_html=True)
+
+    if not results:
+        st.info("No numeric measures detected to plot. Check column roles in the **🎯 Objectives & Data Studio** tab.")
+        return
+
+    # 2-Column Linear Obsidian Chart Grid
+    for row_start in range(0, len(results), 2):
+        row_items = results[row_start : row_start + 2]
+        cols = st.columns(2)
+        for col_idx, res in enumerate(row_items):
+            f, sp = res.finding, res.spec
+            with cols[col_idx]:
+                st.markdown('<div class="chart-box">', unsafe_allow_html=True)
+                conf_color = "#34D399" if f.confidence == "high" else ("#FBBF24" if f.confidence == "medium" else "#F87171")
+                st.markdown(
+                    f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+                    f'<span style="font-size:14px;font-weight:700;color:#F8FAFC;">{_h(sp.text)}</span>'
+                    f'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(148,163,184,0.12);color:{conf_color};text-transform:uppercase;">{_h(f.confidence)} conf.</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                if f.status in ("decision", "blocked", "error"):
+                    st.warning(f.headline)
+                else:
+                    st.markdown(
+                        f'<div style="font-size:12.5px;color:#CBD5E1;margin-bottom:10px;line-height:1.45;">{_h(f.headline)}</div>',
+                        unsafe_allow_html=True,
+                    )
+                    fig = figure_for(f, dark=True, brand_color=brand_color)
+                    if fig is not None:
+                        st.plotly_chart(fig, use_container_width=True, key=f"oq_dash_fig_{sp.id}_{row_start}_{col_idx}")
+                    elif f.details:
+                        for d in f.details[:4]:
+                            st.write("• " + d)
+                    st.caption(f"{f.n_rows:,} rows used · {f.coverage_pct:.0f}% coverage")
+                    with st.expander("Details, caveats & data"):
+                        for d in f.details:
+                            st.write("• " + d)
+                        for c in f.caveats:
+                            st.warning(c)
+                        if f.table is not None and len(f.table):
+                            st.dataframe(f.table.head(100), use_container_width=True, hide_index=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+    takeaways = build_objective_takeaways(results)
+    if takeaways:
+        st.markdown('<div class="section-title">Automated Executive Takeaways</div>', unsafe_allow_html=True)
+        cards_html = "".join(
+            f'<div class="insight-card"><div class="insight-title">{_h(t["icon"])} {_h(t["title"])}</div>'
+            f'<div class="insight-body">{_h(t["body"])}</div></div>'
+            for t in takeaways
+        )
+        st.markdown(f'<div class="insight-grid">{cards_html}</div>', unsafe_allow_html=True)
+
+
+def build_objective_slide_previews(results, kpi_cards, prepared, title, mode_label, brand_color, logo_b64=None) -> list:
+    """Build 16:9 dark Linear Obsidian slide preview dicts aligned with objective_deck.py."""
+    accent = brand_color if re.fullmatch(r"#[0-9A-Fa-f]{6}", str(brand_color or "")) else "#6366F1"
+    logo_tag = f'<img src="{logo_b64}" style="max-height:42px;max-width:140px;object-fit:contain;margin-bottom:14px;display:block;" />' if logo_b64 else ""
+    n_ok = sum(1 for r in results if r.finding.status in ("ok", "caution"))
+
+    slides = [{
+        "num": "01",
+        "name": "Executive Cover",
+        "icon": "🏷️",
+        "tag": f"EXECUTIVE BRIEFING · {_h(mode_label.upper())}",
+        "html": (
+            f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:20px 0;">{logo_tag}'
+            f'<h1 style="font-size:36px;font-weight:800;color:#F8FAFC;margin:0 0 12px 0;letter-spacing:-0.02em;line-height:1.2;">{_h(title)}</h1>'
+            f'<p style="font-size:15px;color:#94A3B8;margin:0 0 24px 0;line-height:1.6;">{n_ok} of {len(results)} Objective Analyses Answered</p>'
+            f'<div style="display:flex;gap:20px;font-size:12px;color:#64748B;">'
+            f'<span style="color:{accent};">● Validated Schema</span><span>{len(prepared.df):,} Records</span><span>Confidential · Boardroom Ready</span></div></div>'
+        ),
+        "notes": f"Welcome everyone. Today we are reviewing {title}, covering {n_ok} objective-driven analyses across {len(prepared.df):,} validated records.",
+    }]
+
+    if kpi_cards:
+        cols = 3 if len(kpi_cards) in (5, 6) else min(4, max(1, len(kpi_cards)))
+        k_html = "".join(
+            f'<div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:14px;">'
+            f'<div style="font-size:10px;color:#64748B;font-weight:700;letter-spacing:0.06em;">{_h(k["label"].upper())}</div>'
+            f'<div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-top:6px;">{_h(k["value"])}</div>'
+            f'<div style="font-size:10.5px;color:#38BDF8;margin-top:4px;">{_h(k.get("pill", ""))}</div></div>'
+            for k in kpi_cards[:8]
+        )
+        slides.append({
+            "num": "02",
+            "name": "KPI Matrix",
+            "icon": "📌",
+            "tag": "EXECUTIVE HIGHLIGHTS · SLIDE 02",
+            "html": (
+                f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:10px 0;">'
+                f'<div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:16px;">Key Performance Indicators</div>'
+                f'<div style="display:grid;grid-template-columns:repeat({cols},1fr);gap:12px;">{k_html}</div></div>'
+            ),
+            "notes": "Here are the core KPIs tied directly to our active objectives, computed strictly on validated non-blank records.",
+        })
+
+    for idx, res in enumerate(results, 1):
+        f, sp = res.finding, res.spec
+        s_num = f"{len(slides) + 1:02d}"
+        bullets = "".join(f'<li style="margin-bottom:6px;">{_h(d)}</li>' for d in f.details[:4])
+        cav = "".join(f'<div style="font-size:11.5px;color:#FBBF24;margin-top:4px;">⚠ {_h(c)}</div>' for c in f.caveats[:2])
+        slides.append({
+            "num": s_num,
+            "name": f"Q{idx}",
+            "icon": "📊",
+            "tag": f"QUESTION {idx} · {_h(KIND_LABEL.get(sp.kind, sp.kind).upper())}",
+            "html": (
+                f'<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;">'
+                f'<div><div style="font-size:18px;font-weight:800;color:#F8FAFC;margin-bottom:8px;">{_h(sp.text)}</div>'
+                f'<div style="font-size:14px;color:{accent};font-weight:600;margin-bottom:14px;">{_h(f.headline)}</div>'
+                f'<ul style="font-size:13px;color:#CBD5E1;padding-left:18px;margin:0;">{bullets}</ul>{cav}</div>'
+                f'<div style="font-size:11px;color:#64748B;">Confidence: {_h(f.confidence)} · {f.n_rows:,} rows · {f.coverage_pct:.0f}% coverage</div></div>'
+            ),
+            "notes": f.headline + (" " + "; ".join(f.assumptions) if f.assumptions else ""),
+        })
+
+    prep_bullets = "".join(f'<li style="margin-bottom:4px;">{_h(l)}</li>' for l in (prepared.log or ["No cleaning changes were needed."])[:5])
+    slides.append({
+        "num": f"{len(slides) + 1:02d}",
+        "name": "Data Notes",
+        "icon": "🛡️",
+        "tag": "METHODOLOGY & ASSUMPTIONS",
+        "html": (
+            f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:10px 0;">'
+            f'<div style="font-size:20px;font-weight:800;color:#F8FAFC;margin-bottom:12px;">How This Analysis Was Done</div>'
+            f'<ul style="font-size:12.5px;color:#CBD5E1;padding-left:18px;margin:0;">{prep_bullets}</ul></div>'
+        ),
+        "notes": "Summary of automated data preparation, schema role detection, and deterministic calculation assumptions.",
+    })
+    return slides

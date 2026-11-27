@@ -33,7 +33,9 @@ class TestObjectivesScreen(unittest.TestCase):
     def test_mode_loads_with_sample_without_errors(self):
         at = select_mode(fresh())
         self.assertFalse(at.exception, [e.value for e in at.exception])
-        self.assertTrue(any("Ask your own questions" in t.value for t in at.title))
+        md = " ".join(m.value for m in at.markdown)
+        self.assertIn("EXECUTIVE BRIEFING", md)
+        self.assertIn("kpi-card", md)
         self.assertTrue(any("Missing data" in s.value for s in at.subheader))
 
     def test_add_question_and_get_answer(self):
@@ -46,6 +48,7 @@ class TestObjectivesScreen(unittest.TestCase):
         self.assertFalse(at.exception, [e.value for e in at.exception])
         md = " ".join(m.value for m in at.markdown)
         self.assertIn("Which region has the highest revenue?", md)
+        self.assertIn("1 Active Objective", md)
 
     def test_original_modes_still_work(self):
         at = fresh()
@@ -162,3 +165,44 @@ class TestExactDerivation(unittest.TestCase):
         text = " ".join(m.value for m in at.markdown) + " ".join(c.value for c in at.caption)
         # the "what these choices changed" expander lists the derivation
         self.assertTrue(any("Derived 4" in str(e.label) or "choices changed" in str(e.label) for e in at.expander))
+
+
+class TestDynamicObjectiveKpis(unittest.TestCase):
+    def test_supports_more_than_four_kpis_and_excludes_unrelated_when_user_set(self):
+        import numpy as np
+        import pandas as pd
+        from schema import prepare_frame
+        import objectives as ob
+        from objectives_ui import compute_objective_kpis, render_kpi_grid_html
+
+        rng = np.random.default_rng(9)
+        n = 40
+        df = pd.DataFrame({
+            "Date": pd.date_range("2025-01-01", periods=n, freq="5D"),
+            "Region": rng.choice(["North", "South"], n),
+            "Sales": rng.uniform(1000, 5000, n),
+            "Profit": rng.uniform(200, 1200, n),
+            "Units": rng.integers(10, 100, n),
+            "Price": rng.uniform(20, 80, n),
+            "Discount": rng.uniform(1, 15, n),
+            "NoiseMetric": rng.uniform(1, 5, n),
+        })
+        prep = prepare_frame(df)
+        questions = [
+            "How has Sales changed over time?",
+            "Which Region has the highest Profit?",
+            "What share of Units comes from each Region?",
+            "Are there unusual values in Price?",
+            "How has Discount changed over time?",
+        ]
+        specs = [ob.plan_objective(q, prep, f"o{i}") for i, q in enumerate(questions, 1)]
+        results = ob.run_objectives(specs, prep, "$")
+        cards = compute_objective_kpis(results, prep, currency="$", is_auto=False)
+        cols = [c["col"] for c in cards]
+        self.assertEqual(len(cards), 5)
+        self.assertNotIn("NoiseMetric", cols)
+        html_out = render_kpi_grid_html(cards)
+        self.assertIn("repeat(3, 1fr)", html_out)
+
+        auto_cards = compute_objective_kpis(results[:1], prep, currency="$", is_auto=True)
+        self.assertGreaterEqual(len(auto_cards), 4)

@@ -607,49 +607,73 @@ with st.spinner("Processing data engine..."):
 
 cols = df.columns.tolist()
 
-# Objective-driven mode: any dataset, user-stated questions. Handled entirely by objectives_ui.
-if report_mode.startswith("Ask your own questions"):
-    from objectives_ui import render_objectives
-    render_objectives(df, source_notes, dataset_name=(os.path.splitext(uploaded_file.name)[0] if uploaded_file else "Sample data"))
-    st.stop()
+import hashlib
+from objectives_ui import (
+    _sig,
+    _state_reset_if_new,
+    render_studio_tab,
+    run_auto_expert_objectives,
+    compute_objective_kpis,
+    render_objective_dashboard_tab,
+    build_objective_slide_previews,
+)
+import objectives as ob
+from analysis_engine import infer_mapping, get_time_scope_options, filter_df_by_time_scope
+from export_utils import generate_cleaned_workbook
+from schema import PreparedFrame
 
-from analysis_engine import infer_mapping
-
-inferred_cols = infer_mapping(df, report_mode=report_mode)
-date_col    = inferred_cols.get("date") or cols[0]
-revenue_col = inferred_cols.get("revenue") or cols[0]
-profit_col  = inferred_cols.get("profit") or "None / Not Available"
-cost_col    = inferred_cols.get("cost") or "None / Not Available"
-conv_col    = inferred_cols.get("conversions") or "None / Not Available"
-cat_col     = inferred_cols.get("category") or "None / Not Available"
-region_col  = inferred_cols.get("region") or "None / Not Available"
+obj_sig = _sig(df)
+_state_reset_if_new(obj_sig)
+is_obj_mode = report_mode.startswith("Ask your own questions")
+has_user_objectives = len(st.session_state.get("oq_questions", [])) > 0
+use_objective_dashboard = is_obj_mode or has_user_objectives
 
 opt_cols = ["None / Not Available"] + cols
+drop_dupes_opt = False
+id_col_opt = None
+date_col = cols[0]
+revenue_col = cols[0]
+profit_col = "None / Not Available"
+cost_col = "None / Not Available"
+conv_col = "None / Not Available"
+cat_col = "None / Not Available"
+region_col = "None / Not Available"
+
+if not use_objective_dashboard:
+    inferred_cols = infer_mapping(df, report_mode=report_mode)
+    date_col    = inferred_cols.get("date") or cols[0]
+    revenue_col = inferred_cols.get("revenue") or cols[0]
+    profit_col  = inferred_cols.get("profit") or "None / Not Available"
+    cost_col    = inferred_cols.get("cost") or "None / Not Available"
+    conv_col    = inferred_cols.get("conversions") or "None / Not Available"
+    cat_col     = inferred_cols.get("category") or "None / Not Available"
+    region_col  = inferred_cols.get("region") or "None / Not Available"
 
 # Sidebar Expanders for advanced workspace settings
 with st.sidebar:
-    with st.expander("⚙️ Verify Auto-Mapped Columns", expanded=False):
-        rev_input_label = "Spend / Revenue" if "Marketing" in report_mode else ("Budget / Allocation" if "Operations" in report_mode else "Revenue Column")
-        date_col    = st.selectbox("Date Column", cols, index=cols.index(date_col))
-        revenue_col = st.selectbox(rev_input_label, cols, index=cols.index(revenue_col))
-        profit_input_label = "Return Value (optional, for ROAS)" if "Marketing" in report_mode else ("Actual Expenses" if "Operations" in report_mode else "Profit Column")
-        profit_col  = st.selectbox(profit_input_label, opt_cols, index=opt_cols.index(profit_col))
-        if "Sales" in report_mode:
-            cost_col = st.selectbox("Cost Column", opt_cols, index=opt_cols.index(cost_col))
-        else:
-            cost_col = "None / Not Available"
-        if "Marketing" in report_mode:
-            conv_col = st.selectbox("Conversions Column", opt_cols, index=opt_cols.index(conv_col))
-        cat_input_label = "Channel / Campaign" if "Marketing" in report_mode else ("Department / Unit" if "Operations" in report_mode else "Category Column")
-        reg_input_label = "Market / Geo" if "Marketing" in report_mode else ("Facility / Location" if "Operations" in report_mode else "Region Column")
-        cat_col     = st.selectbox(cat_input_label, opt_cols, index=opt_cols.index(cat_col))
-        region_col  = st.selectbox(reg_input_label, opt_cols, index=opt_cols.index(region_col))
-        st.markdown("**Duplicates**")
-        drop_dupes_opt = st.checkbox("Remove exact duplicate rows", value=False,
-                                     help="Off by default: identical rows are often genuine repeat transactions.")
-        id_col_choice = st.selectbox("Unique ID column (optional)", opt_cols, index=0,
-                                     help="If your file has an order/transaction ID, rows with a repeated ID are removed.")
-        id_col_opt = None if id_col_choice == "None / Not Available" else id_col_choice
+    if not use_objective_dashboard:
+        with st.expander("⚙️ Verify Auto-Mapped Columns", expanded=False):
+            rev_input_label = "Spend / Revenue" if "Marketing" in report_mode else ("Budget / Allocation" if "Operations" in report_mode else "Revenue Column")
+            date_col    = st.selectbox("Date Column", cols, index=cols.index(date_col))
+            revenue_col = st.selectbox(rev_input_label, cols, index=cols.index(revenue_col))
+            profit_input_label = "Return Value (optional, for ROAS)" if "Marketing" in report_mode else ("Actual Expenses" if "Operations" in report_mode else "Profit Column")
+            profit_col  = st.selectbox(profit_input_label, opt_cols, index=opt_cols.index(profit_col))
+            if "Sales" in report_mode:
+                cost_col = st.selectbox("Cost Column", opt_cols, index=opt_cols.index(cost_col))
+            else:
+                cost_col = "None / Not Available"
+            if "Marketing" in report_mode:
+                conv_col = st.selectbox("Conversions Column", opt_cols, index=opt_cols.index(conv_col))
+            cat_input_label = "Channel / Campaign" if "Marketing" in report_mode else ("Department / Unit" if "Operations" in report_mode else "Category Column")
+            reg_input_label = "Market / Geo" if "Marketing" in report_mode else ("Facility / Location" if "Operations" in report_mode else "Region Column")
+            cat_col     = st.selectbox(cat_input_label, opt_cols, index=opt_cols.index(cat_col))
+            region_col  = st.selectbox(reg_input_label, opt_cols, index=opt_cols.index(region_col))
+            st.markdown("**Duplicates**")
+            drop_dupes_opt = st.checkbox("Remove exact duplicate rows", value=False,
+                                         help="Off by default: identical rows are often genuine repeat transactions.")
+            id_col_choice = st.selectbox("Unique ID column (optional)", opt_cols, index=0,
+                                         help="If your file has an order/transaction ID, rows with a repeated ID are removed.")
+            id_col_opt = None if id_col_choice == "None / Not Available" else id_col_choice
 
     with st.expander("🤖 AI Intelligence (Gemini)", expanded=False):
         gemini_api_key_input = st.text_input(
@@ -705,6 +729,192 @@ with st.sidebar:
         brand_name = st.text_input("Brand / Organization Name", value="", placeholder="e.g. Acme Corp (leave blank for AutoPilot)", help="Custom organization name displayed on Slide 1.")
         brand_color = st.color_picker("Brand Accent Color", value="#6366F1", help="Select corporate accent color to theme the PowerPoint presentation.")
         logo_file = st.file_uploader("Brand Logo (.png, .jpg)", type=["png", "jpg", "jpeg"], help="Optional: Upload company logo for slide headers and cover.")
+
+
+def render_slide_carousel(slides: list):
+    """Render the shared 16:9 Linear Obsidian slide preview carousel + Previous/Next buttons."""
+    if "slide_idx" not in st.session_state:
+        st.session_state.slide_idx = 0
+    st.session_state.slide_idx = max(0, min(st.session_state.slide_idx, len(slides) - 1))
+
+    tab_cols = st.columns(len(slides))
+    for i, s in enumerate(slides):
+        with tab_cols[i]:
+            if st.button(f"{s['icon']} {s['num']} · {s['name']}", key=f"s_{i}", use_container_width=True,
+                         type="primary" if i == st.session_state.slide_idx else "secondary"):
+                st.session_state.slide_idx = i
+                st.rerun()
+
+    curr_s = slides[st.session_state.slide_idx]
+    st.markdown(f'''
+    <div class="deck-viewport">
+        <div class="deck-stage">
+            <div class="slide-top-meta">
+                <span class="slide-category-tag">{curr_s["tag"]}</span>
+            </div>
+            {curr_s["html"]}
+        </div>
+        <div class="speaker-notes-box">
+            <div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">
+                🎤 Speaker Notes
+            </div>
+            <div style="font-size:13px;color:#CBD5E1;line-height:1.6;font-style:italic;">
+                "{h(curr_s["notes"])}"
+            </div>
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
+
+    c_prev, c_space, c_next = st.columns([1, 4, 1])
+    with c_prev:
+        if st.button("◀ Previous Slide", use_container_width=True, disabled=(st.session_state.slide_idx == 0)):
+            st.session_state.slide_idx -= 1
+            st.rerun()
+    with c_next:
+        if st.button("Next Slide ▶", use_container_width=True, disabled=(st.session_state.slide_idx == len(slides) - 1)):
+            st.session_state.slide_idx += 1
+            st.rerun()
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OBJECTIVE-DRIVEN & AUTO-EXPERT UNIFIED 3-TAB FLOW
+# ─────────────────────────────────────────────────────────────────────────────
+if use_objective_dashboard:
+    tab_dash, tab_deck, tab_obj = st.tabs([
+        "📊 Executive Dashboard",
+        "🖥️ Slide Deck Preview & Export",
+        "🎯 Objectives & Data Studio",
+    ])
+
+    # Run Tab 3 controls first in code order so policy/question edits apply immediately in this rerun
+    with tab_obj:
+        sig, prep, handled, hp, obj_specs, user_results, is_auto = render_studio_tab(df, currency=curr_sym)
+
+    # Time Scope filtering on PreparedFrame (when a date column exists)
+    if hp.schema.date and hp.schema.date in hp.df.columns:
+        scope_options = get_time_scope_options(pd.DataFrame({"Date": hp.df[hp.schema.date]}))
+    else:
+        scope_options = [{"id": "all", "label": "Full Dataset"}]
+    scope_labels = [s["label"] for s in scope_options]
+    scope_id_map = {s["label"]: s["id"] for s in scope_options}
+    active_scope_label = st.session_state.get("global_time_scope", scope_labels[0] if scope_labels else "Full Dataset")
+    if active_scope_label not in scope_id_map:
+        active_scope_label = scope_labels[0] if scope_labels else "Full Dataset"
+    active_scope_id = scope_id_map.get(active_scope_label, "all")
+    sel_scope_idx = scope_labels.index(active_scope_label) if active_scope_label in scope_labels else 0
+
+    scoped_hp = hp
+    active_scope_name = "Full Period"
+    if active_scope_id != "all" and hp.schema.date and hp.schema.date in hp.df.columns:
+        tmp_dates = pd.DataFrame({"Date": hp.df[hp.schema.date]}, index=hp.df.index)
+        filtered_idx_df, active_scope_name = filter_df_by_time_scope(tmp_dates, active_scope_id)
+        if filtered_idx_df is not None and not filtered_idx_df.empty:
+            scoped_hp = PreparedFrame(
+                df=hp.df.loc[filtered_idx_df.index].reset_index(drop=True),
+                schema=hp.schema, log=hp.log, quarantine=hp.quarantine,
+            )
+        else:
+            active_scope_id = "all"
+
+    if is_auto:
+        active_results = run_auto_expert_objectives(scoped_hp, currency=curr_sym, limit=4)
+    elif active_scope_id != "all":
+        active_results = ob.run_objectives(obj_specs, scoped_hp, curr_sym, st.session_state["oq_accept"])
+    else:
+        active_results = user_results
+
+    obj_kpis = compute_objective_kpis(active_results, scoped_hp, currency=curr_sym, is_auto=is_auto)
+    obj_wb_key = ("obj_wb", obj_sig, curr_sym, active_scope_id, len(hp.df), tuple(hp.log))
+    obj_stem = os.path.splitext(uploaded_file.name)[0].strip().replace(" ", "_") if uploaded_file else report_title.strip().replace(" ", "_")
+
+    def _render_obj_clean_btn(prefix):
+        if st.session_state.get("clean_wb_key") == obj_wb_key and st.session_state.get("clean_wb_bytes"):
+            st.download_button(
+                label="📥 Download Cleaned Workbook (.xlsx)",
+                data=st.session_state["clean_wb_bytes"],
+                file_name=f"{obj_stem}_Cleaned.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True, key=f"{prefix}_dl",
+            )
+        elif st.button("🧾 Prepare Cleaned Workbook (.xlsx)", use_container_width=True, key=f"{prefix}_prep"):
+            with st.spinner("Building workbook..."):
+                hyg_meta = {"clean_row_count": len(hp.df), "audit_log": hp.log, "health_score": 100}
+                st.session_state["clean_wb_bytes"] = generate_cleaned_workbook(
+                    scoped_hp.df, hyg_meta, hp.quarantine if hp.quarantine is not None else pd.DataFrame(), currency_symbol=curr_sym
+                )
+                st.session_state["clean_wb_key"] = obj_wb_key
+            st.rerun()
+
+    with tab_dash:
+        render_objective_dashboard_tab(
+            hp=scoped_hp,
+            results=active_results,
+            kpi_cards=obj_kpis,
+            scope_labels=scope_labels,
+            sel_scope_idx=sel_scope_idx,
+            is_auto=is_auto,
+            currency=curr_sym,
+            brand_color=brand_color,
+            render_clean_btn_fn=_render_obj_clean_btn,
+        )
+
+    with tab_deck:
+        import base64
+        logo_b64 = f"data:image/png;base64,{base64.b64encode(logo_file.getvalue()).decode()}" if ('logo_file' in locals() and logo_file) else None
+        export_title = f"{report_title} ({active_scope_name})" if active_scope_id != "all" else report_title
+        mode_lbl = "Auto-Expert Analysis" if is_auto else "Objective-Driven Analysis"
+        obj_slides = build_objective_slide_previews(
+            results=active_results, kpi_cards=obj_kpis, prepared=scoped_hp,
+            title=export_title, mode_label=mode_lbl, brand_color=brand_color, logo_b64=logo_b64,
+        )
+        render_slide_carousel(obj_slides)
+
+        deck_key = (
+            "obj_deck", obj_sig, active_scope_id, curr_sym, export_title, brand_color, brand_name,
+            logo_file.name if logo_file else None,
+            tuple((r.spec.id, r.spec.text, r.finding.status, r.finding.headline) for r in active_results),
+            tuple((k["label"], k["value"]) for k in obj_kpis),
+        )
+        answered_objs = [r for r in active_results if r.finding.status in ("ok", "caution")]
+        safe_title = export_title.replace(" ", "_")
+        if not answered_objs:
+            st.caption("Answer at least one objective to export a PowerPoint deck.")
+        elif st.session_state.get("oq_deck", {}).get("key") == deck_key:
+            col_dl, col_rb = st.columns([3, 1])
+            with col_dl:
+                st.download_button(
+                    label="📥  Download Executive PowerPoint Deck (.pptx)",
+                    data=st.session_state["oq_deck"]["bytes"],
+                    file_name=f"{safe_title}.pptx",
+                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    use_container_width=True, type="primary", key="oq_dl_deck_unified",
+                )
+            with col_rb:
+                if st.button("🔄 Recompile", use_container_width=True, key="oq_recomp_unified"):
+                    st.session_state.pop("oq_deck", None)
+                    st.rerun()
+        elif st.button("🚀  Generate Executive PowerPoint Deck (.pptx)", type="primary", use_container_width=True, key="oq_gen_deck_unified"):
+            with st.spinner("🎨 Rendering charts and compiling PowerPoint deck..."):
+                import tempfile
+                from objective_deck import build_objective_deck
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    l_path = None
+                    if logo_file:
+                        l_ext = logo_file.name.split(".")[-1]
+                        l_path = os.path.join(tmp_dir, f"brand_logo.{l_ext}")
+                        with open(l_path, "wb") as lf:
+                            lf.write(logo_file.getbuffer())
+                    p_path = build_objective_deck(
+                        active_results, title=export_title, quality_notes=hp.log,
+                        brand_color=brand_color, brand_name=brand_name or None,
+                        logo_path=l_path, output_dir=tmp_dir, kpis=obj_kpis,
+                    )
+                    with open(p_path, "rb") as pf:
+                        st.session_state["oq_deck"] = {"key": deck_key, "bytes": pf.read()}
+            st.rerun()
+
+    st.stop()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # COMPUTE METRICS VIA ANALYSIS ENGINE (Single Source of Truth, Cached)
@@ -944,7 +1154,14 @@ top_metric   = st.session_state.get("ctrl_metric", "Revenue")
 top_n        = st.session_state.get("ctrl_count", 5)
 prod_rank    = report_data.get('top_products')
 
-tab_dash, tab_deck = st.tabs(["📊 Executive Dashboard", "🖥️ Slide Deck Preview & Export"])
+tab_dash, tab_deck, tab_obj = st.tabs([
+    "📊 Executive Dashboard",
+    "🖥️ Slide Deck Preview & Export",
+    "🎯 Objectives & Data Studio",
+])
+
+with tab_obj:
+    render_studio_tab(df, currency=curr_sym)
 
 with tab_dash:
     # ─────────────────────────────────────────────────────────────────────────────
@@ -1382,49 +1599,7 @@ with tab_deck:
         },
     ]
 
-    # Slide tab selectors
-    tab_cols = st.columns(len(slides))
-    for i, s in enumerate(slides):
-        with tab_cols[i]:
-            if st.button(f"{s['icon']} {s['num']} · {s['name']}", key=f"s_{i}", use_container_width=True,
-                         type="primary" if i == st.session_state.slide_idx else "secondary"):
-                st.session_state.slide_idx = i
-                st.rerun()
-
-    curr_s = slides[st.session_state.slide_idx]
-
-    # 16:9 Slide Canvas Mockup
-    st.markdown(f'''
-    <div class="deck-viewport">
-        <div class="deck-stage">
-            <div class="slide-top-meta">
-                <span class="slide-category-tag">{curr_s["tag"]}</span>
-            </div>
-            {curr_s["html"]}
-        </div>
-        <div class="speaker-notes-box">
-            <div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">
-                🎤 Speaker Notes
-            </div>
-            <div style="font-size:13px;color:#CBD5E1;line-height:1.6;font-style:italic;">
-                "{h(curr_s["notes"])}"
-            </div>
-        </div>
-    </div>
-    ''', unsafe_allow_html=True)
-
-    # Slide Next/Prev controls
-    c_prev, c_space, c_next = st.columns([1, 4, 1])
-    with c_prev:
-        if st.button("◀ Previous Slide", use_container_width=True, disabled=(st.session_state.slide_idx == 0)):
-            st.session_state.slide_idx -= 1
-            st.rerun()
-    with c_next:
-        if st.button("Next Slide ▶", use_container_width=True, disabled=(st.session_state.slide_idx == len(slides) - 1)):
-            st.session_state.slide_idx += 1
-            st.rerun()
-
-    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+    render_slide_carousel(slides)
 
     # ─────────────────────────────────────────────────────────────────────────────
     # POWERPOINT EXPORT PIPELINE (On-Demand & Cached for Instant Carousel Transitions)
