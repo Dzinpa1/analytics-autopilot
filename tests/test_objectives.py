@@ -344,6 +344,32 @@ class TestLLMPlanValidation(Base):
         sp = ob.plan_objective("What is the average revenue by clinic?", self.prep, llm_call=lambda p: self.good())
         self.assertEqual(sp.agg, "mean")
 
+    def test_multi_intent_llm_dashboard_blueprint_validates_and_filters_hallucinations(self):
+        payload = json.dumps({
+            "kpis": [
+                {"type": "measure", "col": "Revenue", "agg": "sum", "label": "Total Revenue"},
+                {"type": "distinct", "col": "Clinic", "agg": "nunique", "label": "Clinics"},
+                {"type": "measure", "col": "FakeCol", "agg": "sum", "label": "Bad"},
+            ],
+            "analyses": [
+                {"kind": "trend", "title": "Revenue Trend", "measure": "Revenue", "dimension": None, "agg": "sum"},
+                {"kind": "compare", "title": "Revenue by Clinic", "measure": "Revenue", "dimension": "Clinic", "agg": "sum"},
+                {"kind": "compare", "title": "Invalid Chart", "measure": "Hallucinated", "dimension": "Clinic", "agg": "sum"},
+            ],
+        })
+        seen = {}
+        def call(p):
+            seen["prompt"] = p
+            return payload
+        bp = ob.plan_dashboard_with_llm("Total revenue, number of clinics, and clinic breakdown", self.prep, llm_call=call)
+        self.assertNotIn("Kumasi", seen["prompt"])
+        self.assertEqual(len(bp["kpis"]), 2)
+        self.assertEqual(bp["kpis"][0]["col"], "Revenue")
+        self.assertEqual(bp["kpis"][1]["agg"], "nunique")
+        self.assertEqual(len(bp["specs"]), 2)
+        self.assertEqual(bp["specs"][0].planner, "llm")
+        self.assertEqual(bp["specs"][1].dimension, "Clinic")
+
 
 if __name__ == "__main__":
     unittest.main()

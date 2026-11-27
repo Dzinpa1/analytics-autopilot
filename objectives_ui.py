@@ -56,7 +56,40 @@ def _state_reset_if_new(sig: str):
         st.session_state["oq_next"] = 1
         st.session_state["oq_accept"] = set()
         st.session_state["oq_over"] = {}
+        st.session_state["oq_ai_plans"] = {}
+        st.session_state["oq_ai_briefings"] = {}
         st.session_state.pop("oq_deck", None)
+
+
+def _plan_smart(prep, q, sig: str, api_key: str = None):
+    """Plan with Gemini AI when api_key is set (cached per question+schema), else deterministic rules."""
+    if api_key:
+        cache = st.session_state.setdefault("oq_ai_plans", {})
+        k_hash = hashlib.md5(api_key.encode()).hexdigest()[:8]
+        ckey = (sig, q["id"], q["text"], k_hash)
+        if ckey not in cache:
+            try:
+                from ai_narrator import make_gemini_json_caller
+                caller = make_gemini_json_caller(api_key)
+                bp = ob.plan_dashboard_with_llm(q["text"], prep, caller, base_id=q["id"])
+                cache[ckey] = bp
+            except Exception:
+                cache[ckey] = None
+        bp = cache.get(ckey)
+        if bp and bp.get("specs"):
+            specs = list(bp["specs"])
+            over = st.session_state["oq_over"].get(q["id"])
+            if over and specs:
+                try:
+                    specs[0] = ob.override_spec(specs[0], prep, **over)
+                except ob.PlanError:
+                    pass
+            return list(bp.get("kpis") or []), specs, None
+
+    spec, err = _plan(prep, q)
+    if err:
+        return [], [], err
+    return [], [spec], None
 
 
 def _add_question(text: str):
@@ -387,42 +420,45 @@ def _distinct_kpi_card(df: pd.DataFrame, col: str, label: Optional[str] = None) 
     return {"label": nice_lbl, "value": f"{n_unique:,}", "pill": pill, "pill_class": "pill-blue", "col": col, "agg": "nunique"}
 
 
-def compute_objective_kpis(results, prepared, currency: str = "", is_auto: bool = False) -> list:
-    """Build KPI cards strictly relevant to active objectives (supports >4 cards & multi-metric prompts)."""
+def compute_objective_kpis(results, prepared, currency: str = "", is_auto: bool = False, ai_kpis: list = None) -> list:
+    """Build KPI cards strictly relevant to active objectives (supports >4 cards & AI-deduced KPIs)."""
     df, schema = prepared.df, prepared.schema
     cards, seen = [], set()
 
-    for res in results:
-        sp = res.spec
-        # First parse multi-KPI clauses from the user's question text (handles comma/and metric lists)
-        extracted = ob.extract_requested_kpis(sp.text, prepared) if not is_auto else []
-        if extracted:
-            for item in extracted:
-                col = item["col"]
-                if col not in df.columns:
-                    continue
-                if item["type"] == "distinct":
-                    key = ("distinct", col, "nunique")
-                    if key not in seen:
-                        seen.add(key)
-                        cards.append(_distinct_kpi_card(df, col, label=item.get("label")))
-                else:
-                    agg = item["agg"]
-                    key = ("measure", col, agg)
-                    if key not in seen:
-                        seen.add(key)
-                        cards.append(_measure_kpi_card(df, schema, col, agg, currency))
-            continue
-
-        for col in (sp.measure, sp.measure2):
-            if not col or col not in df.columns:
-                continue
-            agg = sp.agg if (col == sp.measure and sp.agg in ("sum", "mean", "median", "count")) else an.default_agg(col)
+    def _add_kpi_spec(item):
+        col = item.get("col")
+        if not col or col not in df.columns:
+            return
+        if item.get("type") == "distinct" or item.get("agg") == "nunique":
+            key = ("distinct", col, "nunique")
+            if key not in seen:
+                seen.add(key)
+                cards.append(_distinct_kpi_card(df, col, label=item.get("label")))
+        else:
+            agg = item.get("agg") if item.get("agg") in ob.AGGS else an.default_agg(col)
             key = ("measure", col, agg)
-            if key in seen:
+            if key not in seen:
+                seen.add(key)
+                cards.append(_measure_kpi_card(df, schema, col, agg, currency))
+
+    if ai_kpis and not is_auto:
+        for item in ai_kpis:
+            _add_kpi_spec(item)
+
+    if not cards:
+        for res in results:
+            sp = res.spec
+            extracted = ob.extract_requested_kpis(sp.text, prepared) if not is_auto else []
+            if extracted:
+                for item in extracted:
+                    _add_kpi_spec(item)
                 continue
-            seen.add(key)
-            cards.append(_measure_kpi_card(df, schema, col, agg, currency))
+
+            for col in (sp.measure, sp.measure2):
+                if not col or col not in df.columns:
+                    continue
+                agg = sp.agg if (col == sp.measure and sp.agg in ("sum", "mean", "median", "count")) else an.default_agg(col)
+                _add_kpi_spec({"type": "measure", "col": col, "agg": agg})
 
     if is_auto:
         ranked_measures = sorted(
@@ -598,7 +634,7 @@ def build_objective_takeaways(results) -> list:
     return items
 
 
-def render_studio_tab(df: pd.DataFrame, currency: str = ""):
+def render_studio_tab(df: pd.DataFrame, currency: str = "", api_key: str = None):
     """Render Tab 3 (Objectives & Data Studio) controls and return live prepared state + results."""
     sig = _sig(df)
     _state_reset_if_new(sig)
@@ -618,7 +654,7 @@ def render_studio_tab(df: pd.DataFrame, currency: str = ""):
 
     if len(hp.df) == 0:
         st.error("Your choices removed every row. Pick a gentler option for at least one column.")
-        return sig, prep, handled, hp, [], [], False
+        return sig, prep, handled, hp, [], [], False, []
 
     prev_q_count = len(st.session_state.get("oq_questions", []))
     _section_questions(hp)
@@ -636,10 +672,16 @@ def render_studio_tab(df: pd.DataFrame, currency: str = ""):
             st.session_state.pop("oq_deck", None)
             st.rerun()
 
-    specs, errors = [], []
+    specs, ai_kpis, errors, parent_map = [], [], [], {}
     for q in qs:
-        spec, err = _plan(hp, q)
-        (specs.append(spec) if spec else errors.append((q, err)))
+        k_items, q_specs, err = _plan_smart(hp, q, sig, api_key=api_key)
+        if err:
+            errors.append((q, err))
+        else:
+            ai_kpis.extend(k_items)
+            for sp in q_specs:
+                specs.append(sp)
+                parent_map[sp.id] = q["id"]
     for q, err in errors:
         st.error(f"'{q['text']}': {err}")
 
@@ -648,9 +690,11 @@ def render_studio_tab(df: pd.DataFrame, currency: str = ""):
         st.markdown("#### Active Objectives & Plan Controls")
         for i, res in enumerate(user_results, 1):
             f, sp = res.finding, res.spec
+            p_qid = parent_map.get(sp.id, sp.id)
             with st.container(border=True):
                 st.markdown(f"**Q{i}. {sp.text}**")
-                st.caption(f"{STATUS_LABEL.get(f.status, f.status)}  ·  {KIND_LABEL.get(sp.kind, sp.kind)}  ·  confidence: {f.confidence}")
+                planner_lbl = "✨ Gemini AI" if sp.planner == "llm" else "Rules"
+                st.caption(f"{STATUS_LABEL.get(f.status, f.status)}  ·  {KIND_LABEL.get(sp.kind, sp.kind)}  ·  {planner_lbl}  ·  confidence: {f.confidence}")
                 if f.status in ("decision", "blocked") and not res.feasibility.structural:
                     for r_txt in res.feasibility.reasons:
                         st.warning(r_txt)
@@ -661,11 +705,11 @@ def render_studio_tab(df: pd.DataFrame, currency: str = ""):
                 else:
                     st.write(f.headline)
                 _adjust_widget(hp, sp, sp.id)
-                if st.button("🗑 Remove this question", key=f"oq_rm_tab_{sp.id}"):
-                    _remove_question(sp.id)
+                if p_qid == sp.id and st.button("🗑 Remove this question", key=f"oq_rm_tab_{sp.id}"):
+                    _remove_question(p_qid)
                     st.rerun()
 
-    return sig, prep, handled, hp, specs, user_results, len(qs) == 0
+    return sig, prep, handled, hp, specs, user_results, len(qs) == 0, ai_kpis
 
 
 def run_auto_expert_objectives(hp, currency: str = "", limit: int = 4) -> list:
@@ -692,9 +736,17 @@ def render_objective_dashboard_tab(
     currency: str,
     brand_color: str,
     render_clean_btn_fn,
+    api_key: str = None,
+    report_title: str = "Analysis Report",
 ):
     """Render Tab 1 (Executive Dashboard) in Linear Obsidian style driven by active objectives."""
-    mode_badge = "✦ Auto-Expert Analysis" if is_auto else f"🎯 {len(results)} Active Objective{'s' if len(results) != 1 else ''}"
+    used_llm = any(r.spec.planner == "llm" for r in results)
+    if is_auto:
+        mode_badge = "✦ Auto-Expert Analysis"
+    elif used_llm:
+        mode_badge = f"✨ Gemini AI · {len(results)} Visual{'s' if len(results) != 1 else ''}"
+    else:
+        mode_badge = f"🎯 {len(results)} Active Objective{'s' if len(results) != 1 else ''}"
     hygiene_pill = (
         f'<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;'
         f'background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);color:#34D399;margin-left:8px;">'
@@ -735,12 +787,26 @@ def render_objective_dashboard_tab(
             f"Open the **🎯 Objectives & Data Studio** tab to fill blanks or accept the risk."
         )
 
-    briefing = build_objective_briefing(results, hp, is_auto=is_auto)
+    ai_nar = None
+    if api_key and results:
+        b_cache = st.session_state.setdefault("oq_ai_briefings", {})
+        b_key = (
+            len(hp.df), currency, report_title,
+            tuple((k["label"], k["value"]) for k in kpi_cards),
+            tuple((r.spec.id, r.finding.headline) for r in results),
+        )
+        if b_key not in b_cache:
+            from ai_narrator import generate_objective_briefing
+            b_cache[b_key] = generate_objective_briefing(kpi_cards, results, report_title=report_title, api_key=api_key)
+        ai_nar = b_cache.get(b_key)
+
+    briefing = (ai_nar or {}).get("executive_summary") or build_objective_briefing(results, hp, is_auto=is_auto)
+    brief_tag = "✨ AI EXECUTIVE BRIEFING:" if (ai_nar and ai_nar.get("executive_summary")) else "✦ EXECUTIVE BRIEFING:"
     st.markdown(
         f'<div style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(56,189,248,0.04));'
         f'border:1px solid rgba(99,102,241,0.22);border-radius:8px;padding:12px 18px;margin-bottom:18px;'
         f'font-size:13px;color:#E2E8F0;line-height:1.6;">'
-        f'<span style="font-weight:700;color:#A5B4FC;margin-right:6px;">✦ EXECUTIVE BRIEFING:</span>'
+        f'<span style="font-weight:700;color:#A5B4FC;margin-right:6px;">{brief_tag}</span>'
         f'{_h(briefing)}</div>',
         unsafe_allow_html=True,
     )
@@ -857,9 +923,10 @@ def render_objective_dashboard_tab(
                         if active_finding.table is not None and len(active_finding.table):
                             st.dataframe(active_finding.table.head(100), use_container_width=True, hide_index=True)
 
-    takeaways = build_objective_takeaways(results)
+    takeaways = (ai_nar or {}).get("takeaways") or build_objective_takeaways(results)
     if takeaways:
-        st.markdown('<div class="section-title">Automated Executive Takeaways</div>', unsafe_allow_html=True)
+        ai_badge = '<span style="margin-left:10px;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,0.2);border:1px solid #6366F1;color:#A5B4FC;">✦ AI-Synthesized</span>' if (ai_nar and ai_nar.get("takeaways")) else ""
+        st.markdown(f'<div class="section-title">Automated Executive Takeaways{ai_badge}</div>', unsafe_allow_html=True)
         cards_html = "".join(
             f'<div class="insight-card"><div class="insight-title">{_h(t["icon"])} {_h(t["title"])}</div>'
             f'<div class="insight-body">{_h(t["body"])}</div></div>'

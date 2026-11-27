@@ -428,6 +428,76 @@ Tone: Professional, incisive, data-backed, boardroom-ready.
         return fallback
 
 
+class ObjectiveBriefingSchema(BaseModel):
+    executive_summary: str = Field(description="2-3 sentence executive briefing synthesizing the verified KPIs and findings")
+    takeaways: list[TakeawayItem] = Field(description="Up to 3 concise analytical takeaways grounded in the numbers")
+
+
+def make_gemini_json_caller(api_key: str):
+    """Return a lightweight Callable[[str], str] for schema-only LLM planning using Gemini."""
+    if not api_key:
+        return None
+
+    def _call(prompt: str) -> str:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+        resp = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.1,
+            ),
+        )
+        return resp.text or ""
+
+    return _call
+
+
+def generate_objective_briefing(kpi_cards: list, results: list, report_title: str = "Analysis Report", api_key: str = None) -> dict | None:
+    """Synthesize an executive briefing & 3 takeaways from already-computed objective KPIs & Findings.
+    Returns None cleanly if no key or if Gemini fails so caller uses deterministic fallback."""
+    resolved_key = api_key or get_gemini_api_key()
+    if not resolved_key:
+        return None
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=resolved_key)
+        model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+
+        kpi_facts = [{"label": k.get("label"), "value": k.get("value"), "note": k.get("pill")} for k in (kpi_cards or [])]
+        finding_facts = [
+            {"question": r.spec.text, "headline": r.finding.headline, "details": r.finding.details[:2]}
+            for r in (results or []) if r.finding.status in ("ok", "caution")
+        ]
+        prompt = (
+            f"You are an elite executive business analyst writing a concise briefing for '{report_title}'.\n"
+            "Synthesize ONLY the verified metrics and findings below into a sharp executive briefing (no fabricated numbers).\n\n"
+            f"VERIFIED KPIs:\n{json.dumps(kpi_facts, indent=2)}\n\n"
+            f"VERIFIED FINDINGS:\n{json.dumps(finding_facts, indent=2)}\n"
+        )
+        resp = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ObjectiveBriefingSchema,
+                temperature=0.25,
+            ),
+        )
+        data = json.loads(resp.text)
+        if isinstance(data, dict) and data.get("executive_summary"):
+            return data
+    except Exception:
+        return None
+    return None
+
+
 if __name__ == "__main__":
     from analysis_engine import build_report
     path = os.path.join(os.path.dirname(__file__), "sales_data.csv")

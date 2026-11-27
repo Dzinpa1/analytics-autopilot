@@ -790,7 +790,9 @@ if use_objective_dashboard:
 
     # Run Tab 3 controls first in code order so policy/question edits apply immediately in this rerun
     with tab_obj:
-        sig, prep, handled, hp, obj_specs, user_results, is_auto = render_studio_tab(df, currency=curr_sym)
+        sig, prep, handled, hp, obj_specs, user_results, is_auto, ai_kpis = render_studio_tab(
+            df, currency=curr_sym, api_key=active_api_key
+        )
 
     # Time Scope filtering on PreparedFrame (when a date column exists)
     if hp.schema.date and hp.schema.date in hp.df.columns:
@@ -825,7 +827,7 @@ if use_objective_dashboard:
     else:
         active_results = user_results
 
-    obj_kpis = compute_objective_kpis(active_results, scoped_hp, currency=curr_sym, is_auto=is_auto)
+    obj_kpis = compute_objective_kpis(active_results, scoped_hp, currency=curr_sym, is_auto=is_auto, ai_kpis=ai_kpis)
     dashboard_results = expand_dashboard_results(active_results, scoped_hp, currency=curr_sym, is_auto=is_auto)
     obj_wb_key = ("obj_wb", obj_sig, curr_sym, active_scope_id, len(hp.df), tuple(hp.log))
     obj_stem = os.path.splitext(uploaded_file.name)[0].strip().replace(" ", "_") if uploaded_file else report_title.strip().replace(" ", "_")
@@ -859,6 +861,8 @@ if use_objective_dashboard:
             currency=curr_sym,
             brand_color=brand_color,
             render_clean_btn_fn=_render_obj_clean_btn,
+            api_key=active_api_key,
+            report_title=report_title,
         )
 
     with tab_deck:
@@ -1163,7 +1167,7 @@ tab_dash, tab_deck, tab_obj = st.tabs([
 ])
 
 with tab_obj:
-    render_studio_tab(df, currency=curr_sym)
+    render_studio_tab(df, currency=curr_sym, api_key=active_api_key)
 
 with tab_dash:
     # ─────────────────────────────────────────────────────────────────────────────

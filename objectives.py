@@ -500,6 +500,130 @@ def parse_llm_plan(raw: str, prepared: PreparedFrame, text: str, obj_id: str = "
     return spec
 
 
+def parse_llm_dashboard(raw: str, prepared: PreparedFrame, text: str, base_id: str = "o1") -> dict:
+    """Validate a multi-KPI + multi-chart AI blueprint against the real schema.
+
+    Returns {"kpis": [...], "specs": [ObjectiveSpec, ...]}.
+    Raises PlanError if JSON is invalid or yields zero valid analyses.
+    """
+    s = prepared.schema
+    m = re.search(r"\{.*\}", raw or "", re.S)
+    if not m:
+        raise PlanError("No JSON object in LLM dashboard plan")
+    try:
+        d = json.loads(m.group(0))
+    except json.JSONDecodeError as e:
+        raise PlanError(f"Invalid JSON in LLM dashboard plan: {e}")
+
+    entity_cols = set(s.dimensions) | set(s.ids)
+    meas_cols = set(s.measures)
+
+    valid_kpis, seen_kpis = [], set()
+    for item in (d.get("kpis") or [])[:8]:
+        if not isinstance(item, dict):
+            continue
+        col = item.get("col")
+        k_type = item.get("type", "measure")
+        agg = item.get("agg", "sum")
+        label = str(item.get("label") or "").strip()[:50]
+        if k_type == "distinct" or agg == "nunique":
+            if col in entity_cols and ("distinct", col) not in seen_kpis:
+                seen_kpis.add(("distinct", col))
+                valid_kpis.append({"type": "distinct", "col": col, "agg": "nunique", "label": label or f"Unique {col}"})
+        elif col in meas_cols:
+            if agg not in AGGS:
+                agg = default_agg(col)
+            if ("measure", col, agg) not in seen_kpis:
+                seen_kpis.add(("measure", col, agg))
+                valid_kpis.append({"type": "measure", "col": col, "agg": agg, "label": label})
+
+    valid_specs, seen_specs = [], set()
+    for idx, item in enumerate((d.get("analyses") or [])[:4], 1):
+        if not isinstance(item, dict):
+            continue
+        kind = item.get("kind")
+        if kind not in KINDS:
+            continue
+        measure = item.get("measure") if item.get("measure") in meas_cols else None
+        measure2 = item.get("measure2") if item.get("measure2") in meas_cols else None
+        dimension = item.get("dimension") if item.get("dimension") in s.dimensions else None
+        agg = item.get("agg") if item.get("agg") in AGGS else (default_agg(measure) if measure else "sum")
+        direction = "low" if item.get("direction") == "low" else "high"
+        title = str(item.get("title") or text).strip()[:90]
+
+        if kind in ("trend", "change") and not s.date:
+            continue
+        need = {
+            "target": (measure, measure2),
+            "relationship": (measure, measure2),
+            "compare": (measure, dimension),
+            "composition": (measure, dimension),
+            "trend": (measure,),
+            "change": (measure,),
+            "distribution": (measure,),
+            "overview": (measure,),
+        }[kind]
+        if not all(need):
+            continue
+        sig = (kind, measure, measure2, dimension, agg)
+        if sig in seen_specs:
+            continue
+        seen_specs.add(sig)
+        sp = ObjectiveSpec(
+            id=f"{base_id}_{idx}" if idx > 1 else base_id,
+            text=title,
+            kind=kind,
+            measure=measure,
+            measure2=measure2,
+            dimension=dimension,
+            agg=agg,
+            direction=direction,
+            top_n=10,
+            planner="llm",
+        )
+        sp.assumptions.append("Planned by Gemini AI from your column schema (zero data rows sent).")
+        if kind == "change" and s.date:
+            per = parse_change_periods(text, prepared.df[s.date]) or default_change_periods(prepared.df[s.date])
+            if per:
+                sp.base_range, sp.focus_range = per["base"], per["focus"]
+                sp.base_label, sp.focus_label = per["base_label"], per["focus_label"]
+                sp.assumptions.append(per["note"])
+        valid_specs.append(sp)
+
+    if not valid_specs and not valid_kpis:
+        raise PlanError("LLM plan produced no valid KPIs or analyses for this schema")
+    return {"kpis": valid_kpis, "specs": valid_specs}
+
+
+def plan_dashboard_with_llm(text: str, prepared: PreparedFrame, llm_call: Callable, base_id: str = "o1") -> dict:
+    """Ask an LLM to turn a free-form business objective into validated KPI cards + charts.
+
+    Only column NAMES and ROLES are sent (no data values). Every returned field is schema-checked.
+    """
+    s = prepared.schema
+    cols = [{"name": c, "role": i.role} for c, i in s.columns.items() if i.role in ("measure", "dimension", "date", "id", "flag")]
+    prompt = (
+        "You are an expert analytics architect. Given ONLY the user's objective and the table's column schema "
+        "(no raw cell data), design the exact KPI cards and analytical charts that answer the objective.\n"
+        f"Schema columns: {json.dumps(cols)}\n"
+        f"User objective: {text}\n\n"
+        "Return ONLY valid JSON matching:\n"
+        "{\n"
+        '  "kpis": [{"type": "measure"|"distinct", "col": exact_column_name, "agg": "sum"|"mean"|"median"|"count"|"nunique", "label": short_card_title}],\n'
+        '  "analyses": [{"kind": one_of_' + json.dumps(list(KINDS)) + ', "title": concise_chart_title, '
+        '"measure": measure_col, "measure2": measure_col_or_null, "dimension": dimension_col_or_null, '
+        '"agg": "sum"|"mean"|"median"|"count", "direction": "high"|"low"}]\n'
+        "}\n"
+        "Rules:\n"
+        "1. Extract EVERY KPI mentioned or directly needed (support 1 to 8 KPIs). Use type='distinct', agg='nunique' for counts like 'number of X'.\n"
+        "2. Match 'Total X' with agg='sum' and 'Average X' with agg='mean' strictly per metric; never confuse metrics with different modifiers.\n"
+        "3. Choose 1 to 4 diverse, non-duplicate charts that genuinely explore the user's objective. If user asks a specific comparison or trend, match that exact chart; if user lists metrics broadly, show trend over time + breakdowns across the most relevant dimensions.\n"
+        "4. Column names MUST match exact strings from Schema columns. Never invent columns."
+    )
+    raw = llm_call(prompt)
+    return parse_llm_dashboard(raw, prepared, text, base_id=base_id)
+
+
 # ---------------------------------------------------------------------------------------------
 # feasibility
 # ---------------------------------------------------------------------------------------------
