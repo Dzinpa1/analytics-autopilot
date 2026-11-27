@@ -11,8 +11,8 @@ import objective_charts
 CONF_TEXT = {"high": "Confidence: high", "medium": "Confidence: medium", "low": "Confidence: low"}
 
 
-def _chart_png(finding, tmpdir, idx):
-    fig = objective_charts.figure_for(finding, dark=False)
+def _chart_png(finding, tmpdir, idx, brand_color=None):
+    fig = objective_charts.figure_for(finding, dark=False, brand_color=brand_color)
     if fig is None:
         return None
     path = os.path.join(tmpdir, f"obj_{idx}.png")
@@ -45,7 +45,7 @@ def _bullets(slide, items, l, t, w, h, size=12, color=C_DARK):
         p.space_after = Pt(4)
 
 
-def _answer_slide(prs, result, idx, accent, tmpdir):
+def _answer_slide(prs, result, idx, accent, tmpdir, brand_color=None):
     f = result.finding
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_rect(slide, 0, 0, 13.33, 1.2, accent)
@@ -54,7 +54,7 @@ def _answer_slide(prs, result, idx, accent, tmpdir):
     _add_textbox(slide, _short(result.spec.text, 120), 0.5, 0.38, 12.3, 0.7, size=20, bold=True, color=tc)
     _add_textbox(slide, _short(f.headline, 260), 0.5, 1.4, 12.3, 1.0, size=16, bold=True, color=C_DARK)
 
-    png = _chart_png(f, tmpdir, idx) if f.status in ("ok", "caution") else None
+    png = _chart_png(f, tmpdir, idx, brand_color=brand_color) if f.status in ("ok", "caution") else None
     if png:
         slide.shapes.add_picture(png, Inches(0.5), Inches(2.5), width=Inches(7.4))
         side_l, side_w = 8.2, 4.7
@@ -102,7 +102,7 @@ def build_objective_deck(results, title="Analysis Report", quality_notes=None, b
                 accent_color=accent, logo_path=logo_path, brand_name=brand_name)
     with tempfile.TemporaryDirectory() as tmp:
         for i, r in enumerate(results, 1):
-            _answer_slide(prs, r, i, accent, tmp)
+            _answer_slide(prs, r, i, accent, tmp, brand_color=brand_color)
         _notes_slide(prs, results, list(quality_notes or []), accent)
         out_dir = output_dir or tempfile.mkdtemp(prefix="deck_")
         os.makedirs(out_dir, exist_ok=True)

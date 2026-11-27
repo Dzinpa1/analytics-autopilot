@@ -193,7 +193,7 @@ def _adjust_widget(prep, spec, qid):
                 st.write("• " + a_)
 
 
-def _render_result(prep, res, idx, currency):
+def _render_result(prep, res, idx, currency, brand_color=None):
     f, spec = res.finding, res.spec
     with st.container(border=True):
         st.markdown(f"**Q{idx}. {spec.text}**")
@@ -216,7 +216,7 @@ def _render_result(prep, res, idx, currency):
             st.markdown(f"### {f.headline}")
             for d in f.details:
                 st.write("• " + d)
-            fig = figure_for(f, dark=True)
+            fig = figure_for(f, dark=True, brand_color=brand_color)
             if fig is not None:
                 st.plotly_chart(fig, use_container_width=True, key=f"oq_fig_{spec.id}")
             if f.table is not None and len(f.table):
@@ -290,7 +290,7 @@ def render_objectives(df: pd.DataFrame, source_notes=(), dataset_name: str = "Yo
         st.error(f"'{q['text']}': {err}")
     results = ob.run_objectives(specs, hp, currency, st.session_state["oq_accept"])
     for i, r in enumerate(results, 1):
-        _render_result(hp, r, i, currency)
+        _render_result(hp, r, i, currency, brand_color=brand_color)
 
     # ---- outputs
     st.subheader("5. Take it with you")
