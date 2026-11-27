@@ -81,7 +81,7 @@ def figure_for(
     grid_c = GRID_COLOR if dark else "#E2E8F0"
     dark_bg = DARK_PANEL_BG if dark else "#FFFFFF"
     paper_bg = DARK_PANEL_BG if dark else "#FFFFFF"
-    font_family = "Plus Jakarta Sans, -apple-system, sans-serif" if dark else "Arial, sans-serif"
+    font_family = "Plus Jakarta Sans, -apple-system, sans-serif" if dark else "DejaVu Sans, Arial, sans-serif"
 
     x_series = _clean_period_labels(df_plot[x]) if base_kind == "line" else df_plot[x].astype(str)
     y_name = str(y) if y else ""

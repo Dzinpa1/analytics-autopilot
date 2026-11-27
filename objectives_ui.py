@@ -6,6 +6,7 @@ All numbers come from deterministic code (analyses.py); nothing here invents fig
 import hashlib
 import html
 import re
+import tempfile
 from typing import Optional
 
 import pandas as pd
@@ -63,13 +64,13 @@ def _state_reset_if_new(sig: str):
         st.session_state.pop("oq_deck", None)
 
 
-def _plan_smart(prep, q, sig: str, api_key: str = None):
-    """Plan with Gemini AI when api_key is set (cached per question+schema), else deterministic rules."""
+def _plan_smart(prep, q, sig: str, api_key: str = None, consume_ai_fn=None):
+    """Plan with Gemini AI when api_key is set and budget allows (cached per question+schema), else rules."""
     if api_key:
         cache = st.session_state.setdefault("oq_ai_plans", {})
         k_hash = hashlib.md5(api_key.encode()).hexdigest()[:8]
         ckey = (sig, q["id"], q["text"], k_hash)
-        if ckey not in cache:
+        if ckey not in cache and (consume_ai_fn is None or consume_ai_fn()):
             try:
                 from ai_narrator import make_gemini_json_caller
                 caller = make_gemini_json_caller(api_key)
@@ -351,14 +352,19 @@ def render_objectives(df: pd.DataFrame, source_notes=(), dataset_name: str = "Yo
         try:
             from objective_deck import build_objective_deck
             with st.spinner("Building slides..."):
-                path = build_objective_deck(results, title=title, quality_notes=hp.log, brand_color=brand_color,
-                                            brand_name=brand_name or None)
-                with open(path, "rb") as fh:
-                    st.session_state["oq_deck"] = {"key": deck_key, "bytes": fh.read()}
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    path = build_objective_deck(
+                        results, title=title, quality_notes=hp.log, brand_color=brand_color,
+                        brand_name=brand_name or None, output_dir=tmp_dir,
+                    )
+                    with open(path, "rb") as fh:
+                        st.session_state["oq_deck"] = {"key": deck_key, "bytes": fh.read()}
             st.rerun()
         except Exception as e:
             st.error(f"Could not build the slide deck: {e}")
-    st.download_button("📥 Download the cleaned data (.csv)", hp.df.to_csv(index=False).encode("utf-8-sig"),
+    from export_utils import sanitize_df_for_export
+    csv_bytes = sanitize_df_for_export(hp.df).to_csv(index=False).encode("utf-8-sig")
+    st.download_button("📥 Download the cleaned data (.csv)", csv_bytes,
                        file_name="cleaned_data.csv", mime="text/csv", use_container_width=True, key="oq_dl_csv")
 
 
@@ -677,7 +683,7 @@ def build_objective_takeaways(results) -> list:
     return items
 
 
-def render_studio_tab(df: pd.DataFrame, currency: str = "", api_key: str = None):
+def render_studio_tab(df: pd.DataFrame, currency: str = "", api_key: str = None, consume_ai_fn=None):
     """Render Tab 3 (Objectives & Data Studio) controls and return live prepared state + results."""
     sig = _sig(df)
     _state_reset_if_new(sig)
@@ -717,7 +723,7 @@ def render_studio_tab(df: pd.DataFrame, currency: str = "", api_key: str = None)
 
     specs, ai_kpis, errors, parent_map = [], [], [], {}
     for q in qs:
-        k_items, q_specs, err = _plan_smart(hp, q, sig, api_key=api_key)
+        k_items, q_specs, err = _plan_smart(hp, q, sig, api_key=api_key, consume_ai_fn=consume_ai_fn)
         if err:
             errors.append((q, err))
         else:
@@ -819,6 +825,8 @@ def render_objective_dashboard_tab(
     render_clean_btn_fn,
     api_key: str = None,
     report_title: str = "Analysis Report",
+    trigger_ai: bool = False,
+    consume_ai_fn=None,
 ):
     """Render Tab 1 (Executive Dashboard) in Linear Obsidian style driven by active objectives."""
     used_llm = any(r.spec.planner == "llm" for r in results)
@@ -869,13 +877,19 @@ def render_objective_dashboard_tab(
     if api_key and results:
         b_cache = st.session_state.setdefault("oq_ai_briefings", {})
         b_key = (
-            len(hp.df), currency, report_title,
+            len(hp.df), currency,
             tuple((k["label"], k["value"]) for k in kpi_cards),
             tuple((r.spec.id, r.finding.headline) for r in results),
         )
-        if b_key not in b_cache:
+        if trigger_ai and (consume_ai_fn is None or consume_ai_fn()):
             from ai_narrator import generate_objective_briefing
-            b_cache[b_key] = generate_objective_briefing(kpi_cards, results, report_title=report_title, api_key=api_key)
+            with st.spinner("🧠 Synthesizing executive briefing with Gemini..."):
+                res_nar = generate_objective_briefing(
+                    kpi_cards, results, report_title=report_title, api_key=api_key
+                )
+            if isinstance(res_nar, dict) and res_nar.get("executive_summary"):
+                b_cache[b_key] = res_nar
+                st.toast("✨ Gemini executive briefing & takeaways generated!", icon="🧠")
         ai_nar = b_cache.get(b_key)
 
     briefing = (ai_nar or {}).get("executive_summary") or build_objective_briefing(results, hp, is_auto=is_auto)

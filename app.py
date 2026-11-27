@@ -554,6 +554,8 @@ with st.sidebar:
         except Exception:
             selected_sheet = 0
     use_sample = st.checkbox("⚡ Load sample dataset", value=False)
+    if uploaded_file is not None and use_sample:
+        st.sidebar.caption("Using your uploaded file (uncheck sample to clear).")
 
     # 3. Presentation Title (Derived dynamically from uploaded file or report mode)
     st.markdown('<div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-top:14px;margin-bottom:6px;">3. Presentation Title</div>', unsafe_allow_html=True)
@@ -593,16 +595,16 @@ def load_uploaded_dataset(name: str, file_bytes: bytes, sheet=0):
     return read_tabular(name, file_bytes, sheet)
 
 with st.spinner("Processing data engine..."):
-    if use_sample or uploaded_file is None:
-        from generate_data import generate_sales_data
-        df = generate_sales_data()
-        source_notes = []
-    else:
+    if uploaded_file is not None:
         try:
             df, source_notes = load_uploaded_dataset(uploaded_file.name, uploaded_file.getvalue(), selected_sheet)
         except Exception as e:
             st.error(f"⚠️ **Could not read file:** {str(e)}\n\nPlease ensure your file is a valid CSV or Excel spreadsheet.")
             st.stop()
+    else:
+        from generate_data import generate_sales_data
+        df = generate_sales_data()
+        source_notes = []
 
 cols = df.columns.tolist()
 
@@ -731,6 +733,22 @@ with st.sidebar:
         logo_file = st.file_uploader("Brand Logo (.png, .jpg)", type=["png", "jpg", "jpeg"], help="Optional: Upload company logo for slide headers and cover.")
 
 
+def consume_ai_call() -> bool:
+    """Enforce session & daily server AI caps before executing any Gemini call."""
+    if not active_api_key:
+        return False
+    if st.session_state.ai_calls_count >= MAX_AI_CALLS:
+        st.warning(f"⚠️ Session AI call limit reached ({MAX_AI_CALLS} calls). Using existing commentary.")
+        return False
+    if using_server_key and _server_budget_left() <= 0:
+        st.warning("⚠️ Shared daily AI quota used up for today. Enter your own Gemini API key to continue.")
+        return False
+    st.session_state.ai_calls_count += 1
+    if using_server_key:
+        _server_ai_budget()["used"] += 1
+    return True
+
+
 def render_slide_carousel(slides: list):
     """Render the shared 16:9 Linear Obsidian slide preview carousel + Previous/Next buttons."""
     if "slide_idx" not in st.session_state:
@@ -790,7 +808,7 @@ if use_objective_dashboard:
     # Run Tab 3 controls first in code order so policy/question edits apply immediately in this rerun
     with tab_obj:
         sig, prep, handled, hp, obj_specs, user_results, is_auto, ai_kpis = render_studio_tab(
-            df, currency=curr_sym, api_key=active_api_key
+            df, currency=curr_sym, api_key=active_api_key, consume_ai_fn=consume_ai_call
         )
 
     # Time Scope filtering on PreparedFrame (when a date column exists)
@@ -862,6 +880,8 @@ if use_objective_dashboard:
             render_clean_btn_fn=_render_obj_clean_btn,
             api_key=active_api_key,
             report_title=report_title,
+            trigger_ai=gen_ai_clicked,
+            consume_ai_fn=consume_ai_call,
         )
 
     with tab_deck:
@@ -1005,19 +1025,19 @@ with st.sidebar:
         st.markdown(f"""
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
             <span style="font-size:11px;font-weight:700;color:#94A3B8;text-transform:uppercase;">Data Integrity</span>
-            <span style="font-size:11px;font-weight:700;color:{status_color};background:rgba(16,185,129,0.12);padding:2px 8px;border-radius:10px;border:1px solid rgba(16,185,129,0.25);">✦ {status} ({score}%)</span>
+            <span style="font-size:11px;font-weight:700;color:{status_color};background:rgba(16,185,129,0.12);padding:2px 8px;border-radius:10px;border:1px solid rgba(16,185,129,0.25);">✦ {h(status)} ({score}%)</span>
         </div>
         <div style="font-size:12px;color:#CBD5E1;line-height:1.6;margin-bottom:10px;">
             <div>• <strong>{hygiene.get('clean_row_count', 0):,}</strong> records parsed ({retention}% retention)</div>
             {dropped_line}
-            <div>• Coverage: <strong>{hygiene.get('date_range', 'Validated')}</strong></div>
+            <div>• Coverage: <strong>{h(hygiene.get('date_range', 'Validated'))}</strong></div>
             <div>• Sanitized formatters/nulls: <strong>{hygiene.get('currency_symbols_stripped', 0) + hygiene.get('missing_values_imputed', 0):,}</strong></div>
         </div>
         """, unsafe_allow_html=True)
         if hygiene.get("audit_log"):
             st.markdown('<div style="font-size:11px;font-weight:700;color:#818CF8;margin-bottom:6px;text-transform:uppercase;">Automated Audit Trail:</div>', unsafe_allow_html=True)
             for step in hygiene["audit_log"]:
-                st.markdown(f'<div style="font-size:11px;color:#94A3B8;margin-bottom:3px;">✔ {step}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:11px;color:#94A3B8;margin-bottom:3px;">✔ {h(step)}</div>', unsafe_allow_html=True)
 
         st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
         render_clean_workbook_button("sb")
@@ -1122,13 +1142,8 @@ narrative_key = (
 
 # Check if user explicitly triggered Gemini AI commentary
 if 'gen_ai_clicked' in locals() and gen_ai_clicked and active_api_key:
-    if st.session_state.ai_calls_count >= MAX_AI_CALLS:
-        st.warning(f"⚠️ Session AI call limit reached ({MAX_AI_CALLS} calls). Using existing commentary.")
-    else:
+    if consume_ai_call():
         with st.spinner(f"🧠 Synthesizing executive narrative with Gemini ({report_mode})..."):
-            st.session_state.ai_calls_count += 1
-            if using_server_key:
-                _server_ai_budget()["used"] += 1
             ai_result = generate_narrative(
                 report_data, report_title=report_title, report_mode=report_mode,
                 api_key=active_api_key, currency_symbol=curr_sym
@@ -1166,7 +1181,7 @@ tab_dash, tab_deck, tab_obj = st.tabs([
 ])
 
 with tab_obj:
-    render_studio_tab(df, currency=curr_sym, api_key=active_api_key)
+    render_studio_tab(df, currency=curr_sym, api_key=active_api_key, consume_ai_fn=consume_ai_call)
 
 with tab_dash:
     # ─────────────────────────────────────────────────────────────────────────────
@@ -1555,7 +1570,7 @@ with tab_deck:
     best_period_desc  = insights.get("best_period_desc", "Highest activity concentration recorded. Driven by aligned campaign flights and peak demand velocity.")
     worst_period_desc = insights.get("worst_period_desc", "Softest period recorded. Represents our primary opportunity for strategic counter-cyclical initiatives.")
     trend_slide_title = insights.get("trend_title") or meta.get("trend_title", "Performance Trajectory & Trend")
-    period_guidance   = insights.get("period_guidance", f"Review capacity and planning ahead of best_period, the strongest period in this data.")
+    period_guidance   = insights.get("period_guidance", f"Review capacity and planning ahead of {best_period}, the strongest period in this data.")
 
     slides = [
         {
@@ -1587,7 +1602,7 @@ with tab_deck:
             "name": "Segmentation",
             "icon": "🏆",
             "tag": "PORTFOLIO MIX · SLIDE 04",
-            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{h(meta.get("category_title", "Portfolio Category & Contribution"))}</div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:16px;font-weight:800;color:#F8FAFC;">Top Vertical: {h(top_cat)}</span><span style="font-size:12px;font-weight:700;color:#34D399;background:rgba(16,185,129,0.12);padding:4px 10px;border-radius:12px;">{margin_str} Efficiency Index</span></div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.6;">{h(top_cat)} accounts for the single largest volume and return contribution in our portfolio. Velocity is supported by high organic repeat rates.</p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #C084FC;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Lead Driver Focus:</strong> Double down on top 5 performing units to capture compounding scale.</div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #FBBF24;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Efficiency Expansion:</strong> Audit lower-velocity categories on the cost side to optimize margin.</div></div></div>''',
+            "html": f'''<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0;"><div style="font-size:22px;font-weight:800;color:#F8FAFC;margin-bottom:14px;">{h(meta.get("category_title", "Portfolio Category & Contribution"))}</div><div style="background:#111827;border:1px solid #1F2937;border-radius:10px;padding:20px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:16px;font-weight:800;color:#F8FAFC;">Top Vertical: {h(top_cat)}</span><span style="font-size:12px;font-weight:700;color:#34D399;background:rgba(16,185,129,0.12);padding:4px 10px;border-radius:12px;">{margin_str} Efficiency Index</span></div><p style="font-size:13px;color:#94A3B8;margin:0;line-height:1.6;">{h(top_cat)} accounts for the single largest volume and return contribution in our portfolio.</p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #C084FC;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Lead Driver Focus:</strong> Double down on top 5 performing units to capture compounding scale.</div><div style="background:#111827;border:1px solid #1F2937;border-left:3px solid #FBBF24;border-radius:8px;padding:12px 16px;font-size:12px;color:#94A3B8;"><strong style="color:#F8FAFC;">Efficiency Expansion:</strong> Audit lower-velocity categories on the cost side to optimize margin.</div></div></div>''',
             "notes": speaker_notes.get("slide_4", f"On slide 4, {top_cat} is our clear anchor category. It produces the bulk of our gross margin. Our recommendation here is to double down on inventory depth for our top 5 SKUs while reviewing cost structures for trailing categories.")
         },
         {
@@ -1620,6 +1635,9 @@ with tab_deck:
     active_prod_cat   = st.session_state.get("ctrl_prod_cat", "All Categories")
     active_drill_year = st.session_state.get("drill_year", "All")
     active_drill_gran = st.session_state.get("drill_gran", "Monthly")
+    nar_hash = hashlib.md5(
+        (str(narrative.get("executive_summary", "")) + repr(sorted((speaker_notes or {}).items()))).encode()
+    ).hexdigest()[:12]
     pptx_cache_key = (
         data_hash,
         active_scope_id,
@@ -1637,6 +1655,8 @@ with tab_deck:
         report_title,
         report_mode,
         curr_sym,
+        narrative.get("status"),
+        nar_hash,
     )
 
     export_report_title = f"{report_title} ({active_scope_name})" if active_scope_id != "all" else report_title

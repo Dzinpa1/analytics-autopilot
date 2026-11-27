@@ -59,7 +59,7 @@ def _layout(fig, title: str):
     fig.update_layout(
         title=dict(text=title, font=dict(size=18, color=TEXT), x=0.04),
         paper_bgcolor=BG, plot_bgcolor=BG,
-        font=dict(family="Arial, sans-serif", color=TEXT),
+        font=dict(family="DejaVu Sans, Arial, sans-serif", color=TEXT),
         margin=dict(l=60, r=40, t=70, b=60),
         legend=dict(bgcolor="rgba(0,0,0,0)", borderwidth=0),
     )
@@ -217,7 +217,7 @@ def chart_region(region: pd.DataFrame, chart_type: str = "Donut",
         ))
         fig.update_layout(
             title=dict(text="Revenue Share by Region", font=dict(size=18, color=TEXT), x=0.04),
-            paper_bgcolor=BG, font=dict(family="Arial, sans-serif", color=TEXT),
+            paper_bgcolor=BG, font=dict(family="DejaVu Sans, Arial, sans-serif", color=TEXT),
             margin=dict(l=40, r=40, t=70, b=40), showlegend=True,
         )
         return _save_fig(fig, "chart_region.png", output_dir=output_dir, width=850, height=650)

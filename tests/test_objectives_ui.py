@@ -285,3 +285,138 @@ class TestDynamicObjectiveKpis(unittest.TestCase):
         sp_cat = ob.override_spec(sp, prep, dimension="Category")
         f_cat = an.analyze_change(prep.df, prep.schema, sp_cat, "$")
         self.assertEqual(f_cat.chart["x"], "Category")
+
+
+def _ai_briefing_gate_app():
+    import streamlit as st
+    from generate_data import generate_sales_data
+    from schema import prepare_frame
+    from objectives_ui import (
+        compute_objective_kpis,
+        expand_dashboard_results,
+        render_objective_dashboard_tab,
+        run_auto_expert_objectives,
+    )
+
+    hp = prepare_frame(generate_sales_data().head(60))
+    res = expand_dashboard_results(run_auto_expert_objectives(hp, currency="$", limit=2), hp, currency="$", is_auto=True)
+    kpis = compute_objective_kpis(res, hp, currency="$", is_auto=True)
+    title = st.text_input("Report Title", value="Initial Title", key="gate_title")
+    clicked = st.button("Trigger AI", key="gate_trigger")
+    st.session_state.setdefault("gate_consumed", 0)
+
+    def _consume():
+        if not st.session_state.get("gate_allow", True):
+            return False
+        st.session_state["gate_consumed"] += 1
+        return True
+
+    render_objective_dashboard_tab(
+        hp=hp,
+        results=res,
+        kpi_cards=kpis,
+        scope_labels=["Full Dataset"],
+        sel_scope_idx=0,
+        is_auto=True,
+        currency="$",
+        brand_color="#6366F1",
+        render_clean_btn_fn=lambda _p: None,
+        api_key="fake-test-key",
+        report_title=title,
+        trigger_ai=clicked,
+        consume_ai_fn=_consume,
+    )
+
+
+class TestObjectiveAiBudgetGates(unittest.TestCase):
+    def test_dashboard_does_not_auto_call_gemini_until_triggered_and_caches_without_title(self):
+        from unittest.mock import patch
+
+        mock_nar = {
+            "executive_summary": "Mock Gemini briefing for boardroom.",
+            "takeaways": [{"icon": "✨", "title": "AI Insight", "body": "Verified insight."}],
+        }
+        with patch("ai_narrator.generate_objective_briefing", return_value=mock_nar) as mock_brief:
+            at = AppTest.from_function(_ai_briefing_gate_app, default_timeout=60).run()
+            self.assertFalse(at.exception, [e.value for e in at.exception])
+            # Initial render has trigger_ai=False even with api_key set -> no Gemini call
+            self.assertEqual(mock_brief.call_count, 0)
+            self.assertEqual(at.session_state["gate_consumed"], 0)
+            md0 = " ".join(m.value for m in at.markdown)
+            self.assertIn("EXECUTIVE BRIEFING:", md0)
+            self.assertNotIn("Mock Gemini briefing for boardroom.", md0)
+
+            # Clicking Trigger AI runs Gemini once and caches the result
+            [b for b in at.button if b.label == "Trigger AI"][0].click()
+            at.run()
+            self.assertFalse(at.exception, [e.value for e in at.exception])
+            self.assertEqual(mock_brief.call_count, 1)
+            self.assertEqual(at.session_state["gate_consumed"], 1)
+            md1 = " ".join(m.value for m in at.markdown)
+            self.assertIn("Mock Gemini briefing for boardroom.", md1)
+
+            # Editing report_title keeps the cached briefing without extra Gemini calls
+            at.text_input[0].set_value("Renamed Board Deck")
+            at.run()
+            self.assertFalse(at.exception, [e.value for e in at.exception])
+            self.assertEqual(mock_brief.call_count, 1)
+            self.assertEqual(at.session_state["gate_consumed"], 1)
+            md2 = " ".join(m.value for m in at.markdown)
+            self.assertIn("Mock Gemini briefing for boardroom.", md2)
+
+    def test_dashboard_respects_consume_ai_fn_cap_when_triggered(self):
+        from unittest.mock import patch
+
+        with patch("ai_narrator.generate_objective_briefing") as mock_brief:
+            at = AppTest.from_function(_ai_briefing_gate_app, default_timeout=60)
+            at.session_state["gate_allow"] = False
+            at.run()
+            [b for b in at.button if b.label == "Trigger AI"][0].click()
+            at.run()
+            self.assertFalse(at.exception, [e.value for e in at.exception])
+            self.assertEqual(mock_brief.call_count, 0)
+            self.assertIn("EXECUTIVE BRIEFING:", " ".join(m.value for m in at.markdown))
+
+    def test_plan_smart_falls_back_to_rules_when_consume_ai_fn_denies(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from generate_data import generate_sales_data
+        from schema import prepare_frame
+        import objectives as ob
+        import objectives_ui as oui
+
+        prep = prepare_frame(generate_sales_data().head(40))
+        q = {"id": "o1", "text": "Which Region has the highest Revenue?"}
+        fake_st = SimpleNamespace(session_state={"oq_over": {}, "oq_ai_plans": {}})
+
+        with patch.object(oui, "st", fake_st), \
+             patch("objectives.plan_dashboard_with_llm") as mock_llm:
+            kpis, specs, err = oui._plan_smart(
+                prep, q, "sig_denied", api_key="fake-key", consume_ai_fn=lambda: False
+            )
+            self.assertEqual(mock_llm.call_count, 0)
+            self.assertIsNone(err)
+            self.assertEqual(kpis, [])
+            self.assertEqual(len(specs), 1)
+            self.assertEqual(specs[0].planner, "rules")
+
+        # Allowed path calls LLM once on cache miss and reuses cache without extra consumption
+        calls = {"n": 0}
+        def _allow():
+            calls["n"] += 1
+            return True
+
+        llm_spec = ob.ObjectiveSpec(id="o1", text=q["text"], kind="compare", measure="Revenue", dimension="Region", planner="llm")
+        llm_plan = {"kpis": [], "specs": [llm_spec]}
+        with patch.object(oui, "st", fake_st), \
+             patch("ai_narrator.make_gemini_json_caller", return_value=lambda _p: "{}"), \
+             patch("objectives.plan_dashboard_with_llm", return_value=llm_plan) as mock_llm:
+            _, specs_1, err_1 = oui._plan_smart(prep, q, "sig_allowed", api_key="fake-key", consume_ai_fn=_allow)
+            _, specs_2, err_2 = oui._plan_smart(prep, q, "sig_allowed", api_key="fake-key", consume_ai_fn=_allow)
+            self.assertIsNone(err_1)
+            self.assertIsNone(err_2)
+            self.assertEqual(calls["n"], 1)
+            self.assertEqual(mock_llm.call_count, 1)
+            self.assertEqual(specs_1[0].planner, "llm")
+            self.assertEqual(specs_2[0].planner, "llm")
+

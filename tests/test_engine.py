@@ -612,3 +612,71 @@ class TestMissingDataInEngine(unittest.TestCase):
         df = pd.DataFrame({"Date": pd.date_range("2024-01-01", periods=3), "Revenue": [1.0, 2.0, 3.0], "Profit": [np.nan] * 3})
         r = build_report_from_df(df, mapping={"date": "Date", "revenue": "Revenue", "profit": "Profit"})
         self.assertFalse(r["kpis"]["has_profit"])
+
+    def test_quarterly_period_guidance_interpolates_quarter_label(self):
+        from analysis_engine import compute_adaptive_time_series
+
+        dates = pd.to_datetime([
+            "2024-01-15", "2024-04-15", "2024-07-15", "2024-10-15",
+            "2025-01-15", "2025-04-15", "2025-07-15", "2025-10-15",
+        ])
+        revs = [100.0, 200.0, 950.0, 300.0, 120.0, 220.0, 400.0, 350.0]
+        df = pd.DataFrame({"Date": dates, "Revenue": revs, "Profit": [v * 0.3 for v in revs]})
+        horizon_info = {"horizon": "multi_year", "desc": "Multi-year", "detected_year": None}
+
+        _, q_insights = compute_adaptive_time_series(df, horizon_info=horizon_info, granularity="quarterly")
+        self.assertNotIn("best_q", q_insights["period_guidance"])
+        self.assertIn("Q3 '24", q_insights["period_guidance"])
+
+        _, m_insights = compute_adaptive_time_series(df, horizon_info=horizon_info, granularity="monthly")
+        self.assertNotIn("best_m_full", m_insights["period_guidance"])
+        self.assertIn(m_insights["best_period"], m_insights["period_guidance"])
+
+    def test_cleaned_workbook_neutralizes_formula_injection_caps_widths_and_handles_empty(self):
+        import io
+        import openpyxl
+        from export_utils import generate_cleaned_workbook, sanitize_cell_for_spreadsheet
+
+        self.assertEqual(sanitize_cell_for_spreadsheet("=CMD|'/C calc'!A0"), "'=CMD|'/C calc'!A0")
+        self.assertEqual(sanitize_cell_for_spreadsheet("-SUM(A1:A2)"), "'-SUM(A1:A2)")
+        self.assertEqual(sanitize_cell_for_spreadsheet("-500"), "-500")
+        self.assertEqual(sanitize_cell_for_spreadsheet("+12.50"), "+12.50")
+        self.assertEqual(sanitize_cell_for_spreadsheet(-42.5), -42.5)
+
+        long_text = "x" * 120
+        df = pd.DataFrame({
+            "Date": pd.to_datetime(["2025-01-01", "2025-01-02"]),
+            "Note": ["=CMD|'/C calc'!A0", long_text],
+            "SignedStr": ["-500", "-SUM(B1:B2)"],
+            "Revenue": [-125.5, 300.0],
+        })
+        quar = pd.DataFrame({"Bad": ["+1+1", "ok"]})
+        hyg = {"audit_log": ["=1+1", "Validated 2 rows"], "health_status": "@alert"}
+        wb_bytes = generate_cleaned_workbook(df, hyg, quar)
+        wb = openpyxl.load_workbook(io.BytesIO(wb_bytes))
+
+        ws = wb["Cleaned_Data"]
+        self.assertEqual(ws["B2"].value, "'=CMD|'/C calc'!A0")
+        self.assertEqual(ws["C2"].value, "-500")
+        self.assertEqual(ws["C3"].value, "'-SUM(B1:B2)")
+        self.assertEqual(ws["D2"].value, -125.5)
+        self.assertLessEqual(ws.column_dimensions["B"].width, 60)
+
+        ws_audit = wb["Audit_Trail"]
+        self.assertEqual(ws_audit["B16"].value, "'=1+1")
+        ws_quar = wb["Quarantined_Rows"]
+        self.assertEqual(ws_quar["A2"].value, "'+1+1")
+
+        # Empty clean_df with columns must succeed cleanly without adding an empty Excel table
+        empty_df = df.iloc[0:0].copy()
+        empty_bytes = generate_cleaned_workbook(empty_df, {}, pd.DataFrame())
+        wb_empty = openpyxl.load_workbook(io.BytesIO(empty_bytes))
+        self.assertEqual(len(wb_empty["Cleaned_Data"].tables), 0)
+
+    def test_read_tabular_enforces_max_upload_bytes(self):
+        import io_utils
+
+        oversized = b"a" * (io_utils.MAX_UPLOAD_BYTES + 1)
+        with self.assertRaises(ValueError) as ctx:
+            io_utils.read_tabular("too_big.csv", oversized)
+        self.assertIn("15 MB", str(ctx.exception))

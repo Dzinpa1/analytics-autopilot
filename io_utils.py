@@ -3,10 +3,15 @@ import io
 import os
 import pandas as pd
 
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB
+
 
 def read_tabular(name: str, file_bytes: bytes, sheet=0) -> tuple:
     """Parse CSV/Excel bytes. Returns (DataFrame, notes[list of str]).
     CSV: tries utf-8-sig -> utf-8 -> cp1252 -> latin1 with delimiter sniffing."""
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        mb = len(file_bytes) / (1024 * 1024)
+        raise ValueError(f"File is too large ({mb:.1f} MB). Maximum supported upload size is 15 MB.")
     lower = name.lower()
     notes = []
     if lower.endswith(".csv") or lower.endswith(".txt") or lower.endswith(".tsv"):
