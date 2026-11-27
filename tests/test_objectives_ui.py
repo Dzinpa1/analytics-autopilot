@@ -1,0 +1,152 @@
+"""Headless checks of the objectives screen with Streamlit's AppTest (no browser)."""
+import os
+import unittest
+from streamlit.testing.v1 import AppTest
+
+APP = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app.py")
+MODE = "Ask your own questions (any data)"
+
+
+def fresh():
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.run()
+    return at
+
+
+def select_mode(at):
+    sb = next(s for s in at.sidebar.selectbox if s.label == "Report Mode")
+    sb.set_value(MODE)
+    at.run()
+    return at
+
+
+class TestObjectivesScreen(unittest.TestCase):
+    def test_mode_loads_with_sample_without_errors(self):
+        at = select_mode(fresh())
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+        self.assertTrue(any("Ask your own questions" in t.value for t in at.title))
+        self.assertTrue(any("Missing data" in s.value for s in at.subheader))
+
+    def test_add_question_and_get_answer(self):
+        at = select_mode(fresh())
+        at.text_input[0].set_value("Which region has the highest revenue?")
+        add = [b for b in at.button if b.label == "➕ Add question"]
+        self.assertTrue(add, "Add question button missing")
+        add[0].click()
+        at.run()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+        md = " ".join(m.value for m in at.markdown)
+        self.assertIn("Which region has the highest revenue?", md)
+
+    def test_original_modes_still_work(self):
+        at = fresh()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+def _messy_app():
+    import numpy as np
+    import pandas as pd
+    import streamlit as st
+    from objectives_ui import render_objectives
+    rng = np.random.default_rng(3)
+    n = 80
+    df = pd.DataFrame({
+        "Order Date": pd.date_range("2024-01-01", periods=n, freq="4D"),
+        "Branch": rng.choice(["Accra", "Kumasi", "Tamale"], n),
+        "Revenue": rng.uniform(100, 900, n).round(2),
+        "Cost": rng.uniform(50, 400, n).round(2),
+    })
+    df.loc[rng.choice(n, 25, replace=False), "Revenue"] = None      # 31% blank -> needs a decision
+    df.loc[rng.choice(n, 6, replace=False), "Branch"] = None
+    render_objectives(df, (), "Messy")
+
+
+class TestMessyDataFlow(unittest.TestCase):
+    def setUp(self):
+        self.at = AppTest.from_function(_messy_app, default_timeout=60).run()
+
+    def ok(self):
+        self.assertFalse(self.at.exception, [e.value for e in self.at.exception])
+
+    def add(self, text):
+        self.at.text_input[0].set_value(text)
+        [b for b in self.at.button if b.label == "➕ Add question"][0].click()
+        self.at.run()
+        self.ok()
+
+    def test_loads_and_shows_missing_decisions(self):
+        self.ok()
+        labels = [s.label for s in self.at.selectbox]
+        self.assertTrue(any(l.startswith("Revenue: 25 blank") for l in labels), labels)
+
+    def test_decision_gate_then_accept(self):
+        self.add("What is the total revenue by branch?")
+        self.assertTrue(any("accept the risk" in b.label for b in self.at.button))
+        [b for b in self.at.button if "accept the risk" in b.label][0].click()
+        self.at.run()
+        self.ok()
+        self.assertFalse(any("accept the risk" in b.label for b in self.at.button))
+
+    def test_filling_choice_applies_and_labels_estimates(self):
+        sel = [s for s in self.at.selectbox if s.label.startswith("Revenue:")][0]
+        sel.set_value("Fill with the median")
+        self.at.run()
+        self.ok()
+        self.assertTrue(any("estimates" in i.value for i in self.at.info), [i.value for i in self.at.info])
+
+    def test_suggestion_click_and_multiple_questions(self):
+        self.add("Which branch has the highest cost?")
+        self.add("How has cost changed over time?")
+        md = " ".join(m.value for m in self.at.markdown)
+        self.assertIn("Q1.", md)
+        self.assertIn("Q2.", md)
+
+    def test_remove_question(self):
+        self.add("Which branch has the highest cost?")
+        [b for b in self.at.button if "Remove this question" in b.label][0].click()
+        self.at.run()
+        self.ok()
+        self.assertFalse(any("Remove this question" in b.label for b in self.at.button))
+
+    def test_override_changes_aggregation(self):
+        self.add("Which branch has the highest cost?")
+        agg = [s for s in self.at.selectbox if s.label == "How to combine values"][0]
+        agg.set_value("mean")
+        self.at.run()
+        [b for b in self.at.button if b.label == "Apply my changes"][0].click()
+        self.at.run()
+        self.ok()
+        self.assertIn("average", " ".join(m.value for m in self.at.markdown).lower())
+
+    def test_remove_all_rows_choice_is_handled(self):
+        for s in self.at.selectbox:
+            if s.label.startswith(("Revenue:", "Branch:")):
+                s.set_value("Remove those rows")
+        self.at.run()
+        self.ok()
+
+
+def _derive_app():
+    import numpy as np
+    import pandas as pd
+    from objectives_ui import render_objectives
+    rng = np.random.default_rng(5)
+    n = 60
+    df = pd.DataFrame({"Date": pd.date_range("2024-01-01", periods=n, freq="5D"), "Revenue": rng.uniform(100, 900, n).round(2),
+                       "Cost": rng.uniform(50, 90, n).round(2)})
+    df["Profit"] = (df["Revenue"] - df["Cost"]).round(2)
+    df.loc[[3, 9, 15, 21], "Profit"] = None
+    render_objectives(df, (), "Derive")
+
+
+class TestExactDerivation(unittest.TestCase):
+    def test_blank_profit_is_calculated_and_reported(self):
+        at = AppTest.from_function(_derive_app, default_timeout=60).run()
+        assert not at.exception, [e.value for e in at.exception]
+        text = " ".join(m.value for m in at.markdown) + " ".join(c.value for c in at.caption)
+        # the "what these choices changed" expander lists the derivation
+        self.assertTrue(any("Derived 4" in str(e.label) or "choices changed" in str(e.label) for e in at.expander))

@@ -350,6 +350,42 @@ def plan_objective(text: str, prepared: PreparedFrame, obj_id: str = "o1", llm_c
     return _finish_spec(spec, schema, df, text)
 
 
+def override_spec(spec: ObjectiveSpec, prepared: PreparedFrame, **changes) -> ObjectiveSpec:
+    """Apply the user's own corrections (kind, measure, measure2, dimension, agg). Validated against the real schema;
+    unknown values raise PlanError so a bad choice can never silently change an answer."""
+    import dataclasses
+    schema = prepared.schema
+    allowed = {"kind", "measure", "measure2", "dimension", "agg"}
+    clean = {k: v for k, v in changes.items() if k in allowed and v not in (None, "")}
+    bad = set(changes) - allowed
+    if bad:
+        raise PlanError(f"Cannot change: {', '.join(sorted(bad))}")
+    if "kind" in clean and clean["kind"] not in ANALYSES:
+        raise PlanError(f"Unknown analysis type '{clean['kind']}'.")
+    if "agg" in clean and clean["agg"] not in AGGS:
+        raise PlanError(f"Unknown aggregation '{clean['agg']}'.")
+    for k in ("measure", "measure2"):
+        if k in clean and clean[k] not in schema.measures:
+            raise PlanError(f"'{clean[k]}' is not a number column.")
+    if "dimension" in clean and clean["dimension"] not in schema.dimensions:
+        raise PlanError(f"'{clean['dimension']}' is not a grouping column.")
+    new = dataclasses.replace(spec, **clean, assumptions=list(spec.assumptions))
+    new.planner = "you"
+    if clean:
+        new.assumptions.append("You adjusted: " + ", ".join(f"{k} = {v}" for k, v in clean.items()) + ".")
+    if new.kind in ("compare", "composition") and not new.dimension and schema.dimensions:
+        new.dimension = schema.dimensions[0]
+    if new.kind in ("target", "relationship") and not new.measure2:
+        others = [m for m in schema.measures if m != new.measure]
+        new.measure2 = others[0] if others else None
+    if new.kind == "change" and schema.date and not (new.base_range and new.focus_range):
+        per = parse_change_periods(new.text, prepared.df[schema.date]) or default_change_periods(prepared.df[schema.date])
+        if per:
+            new.base_range, new.focus_range = per["base"], per["focus"]
+            new.base_label, new.focus_label = per["base_label"], per["focus_label"]
+    return new
+
+
 def plan_with_llm(text: str, prepared: PreparedFrame, llm_call: Callable, obj_id: str = "o1") -> ObjectiveSpec:
     """Ask an LLM for a plan. Only column NAMES and ROLES are sent (no cell values). The reply is
     validated against the real schema; anything invalid raises PlanError."""

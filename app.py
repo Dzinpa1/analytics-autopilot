@@ -524,7 +524,7 @@ with st.sidebar:
     st.markdown('<div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">1. Report Workflow Mode</div>', unsafe_allow_html=True)
     report_mode = st.selectbox(
         "Report Mode",
-        ["Sales & Retail Performance", "Marketing & Ad Campaign ROI", "Operations & Expense Tracker"],
+        ["Sales & Retail Performance", "Marketing & Ad Campaign ROI", "Operations & Expense Tracker", "Ask your own questions (any data)"],
         index=0,
         label_visibility="collapsed",
         help="Adapts KPI metrics, AI boardroom commentary, and slide structures to your specific business workflow."
@@ -606,6 +606,12 @@ with st.spinner("Processing data engine..."):
             st.stop()
 
 cols = df.columns.tolist()
+
+# Objective-driven mode: any dataset, user-stated questions. Handled entirely by objectives_ui.
+if report_mode.startswith("Ask your own questions"):
+    from objectives_ui import render_objectives
+    render_objectives(df, source_notes, dataset_name=(os.path.splitext(uploaded_file.name)[0] if uploaded_file else "Sample data"))
+    st.stop()
 
 from analysis_engine import infer_mapping
 
