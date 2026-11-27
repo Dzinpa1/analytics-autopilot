@@ -19,7 +19,7 @@ SUMMARY_KEYWORDS = {"total", "grand total", "subtotal", "sub total", "totals"}
 # A value only counts as numeric if its WHOLE shape is number-like (symbol/code prefix, digits with
 # separators, optional K/M/B/T or % suffix, optional brackets) - not "free text number 5".
 _NUMERIC_SHAPE = re.compile(r"^\(?\s*[-+]?\s*(?:[A-Z]{3}\s)?[^\w\s.,()+-]{0,2}\s*[-+]?\d[\d.,\s]*(?:[KkMmBbTt]|%)?\s*\)?$")
-_DATE_SHAPE = re.compile(r"(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4})|([A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{2,4})|(\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{2,4})|(\d{4}-\d{2})")
+_DATE_SHAPE = re.compile(r"(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4})|([A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{2,4})|(\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{2,4})|(\d{1,2}[-/][A-Za-z]{3,9}[-/]\d{2,4})|(\d{4}-\d{2})")
 
 
 @dataclass
