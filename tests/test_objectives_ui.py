@@ -14,6 +14,9 @@ def fresh():
 
 
 def select_mode(at):
+    cb = next(c for c in at.sidebar.checkbox if "Load sample dataset" in c.label)
+    if not cb.value:
+        cb.set_value(True)
     sb = next(s for s in at.sidebar.selectbox if s.label == "Report Mode")
     sb.set_value(MODE)
     at.run()
@@ -21,6 +24,12 @@ def select_mode(at):
 
 
 class TestObjectivesScreen(unittest.TestCase):
+    def test_starts_without_sample_loaded(self):
+        at = fresh()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+        cb = next(c for c in at.sidebar.checkbox if "Load sample dataset" in c.label)
+        self.assertFalse(cb.value)
+        self.assertTrue(any("Welcome to AutoPilot Studio" in i.value for i in at.info))
     def test_mode_loads_with_sample_without_errors(self):
         at = select_mode(fresh())
         self.assertFalse(at.exception, [e.value for e in at.exception])
@@ -40,6 +49,9 @@ class TestObjectivesScreen(unittest.TestCase):
 
     def test_original_modes_still_work(self):
         at = fresh()
+        cb = next(c for c in at.sidebar.checkbox if "Load sample dataset" in c.label)
+        cb.set_value(True)
+        at.run()
         self.assertFalse(at.exception, [e.value for e in at.exception])
 
 

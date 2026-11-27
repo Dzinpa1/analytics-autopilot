@@ -553,7 +553,7 @@ with st.sidebar:
                     selected_sheet = st.selectbox("Excel Sheet", xl.sheet_names, key="excel_sheet_select", label_visibility="collapsed")
         except Exception:
             selected_sheet = 0
-    use_sample = st.checkbox("⚡ Load sample dataset", value=False if uploaded_file else True)
+    use_sample = st.checkbox("⚡ Load sample dataset", value=False)
 
     # 3. Presentation Title (Derived dynamically from uploaded file or report mode)
     st.markdown('<div style="font-size:11px;font-weight:700;color:#818CF8;text-transform:uppercase;letter-spacing:0.06em;margin-top:14px;margin-bottom:6px;">3. Presentation Title</div>', unsafe_allow_html=True)
