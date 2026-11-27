@@ -4,19 +4,30 @@ import pandas as pd
 
 import analyses as an
 
-PALETTE = ["#6366F1", "#38BDF8", "#818CF8", "#0EA5E9", "#A5B4FC", "#34D399", "#F59E0B", "#C084FC"]
+PALETTE = ["#6366F1", "#38BDF8", "#818CF8", "#0EA5E9", "#A5B4FC", "#34D399"]
+DARK_PANEL_BG = "#111827"
+GRID_COLOR = "#1F2937"
 DANGER_COLOR = "#F87171"
 SUCCESS_COLOR = "#34D399"
 
 
+def _clean_period_labels(labels: pd.Series) -> pd.Series:
+    """Compact 'Jan 2026', 'Feb 2026' -> 'Jan', 'Feb' when all dates share a single year."""
+    s = labels.astype(str)
+    parts = s.str.extract(r"^([A-Za-z]{3})\s+(\d{4})$")
+    if parts[0].notna().all() and parts[1].nunique() == 1:
+        return parts[0]
+    return s
+
+
 def _auto_tickangle(labels: pd.Series, kind: str) -> int:
-    """Angle x-axis labels when categories are long or numerous so labels never collide."""
+    """Angle x-axis labels only when labels are long or numerous."""
     if kind in ("Donut", "Pie", "Horizontal Bar", "scatter", "hist") or labels.empty:
         return 0
     strs = labels.astype(str).tolist()
     n = len(strs)
     max_len = max((len(s) for s in strs), default=0)
-    if n > 8 or (n >= 4 and max_len > 10) or max_len > 14:
+    if n > 12 or (n >= 4 and max_len > 10) or max_len > 14:
         return -25
     return 0
 
@@ -67,11 +78,12 @@ def figure_for(
     primary = brand_color if (brand_color and str(brand_color).startswith("#")) else PALETTE[0]
     palette = [primary] + [c for c in PALETTE if c.lower() != primary.lower()]
     fg = "#94A3B8" if dark else "#1E293B"
-    grid_c = "#1F2937" if dark else "#E2E8F0"
-    dark_bg = "#111827" if dark else "#FFFFFF"
-    paper_bg = "rgba(0,0,0,0)" if dark else "#FFFFFF"
+    grid_c = GRID_COLOR if dark else "#E2E8F0"
+    dark_bg = DARK_PANEL_BG if dark else "#FFFFFF"
+    paper_bg = DARK_PANEL_BG if dark else "#FFFFFF"
     font_family = "Plus Jakarta Sans, -apple-system, sans-serif" if dark else "Arial, sans-serif"
 
+    x_series = _clean_period_labels(df_plot[x]) if base_kind == "line" else df_plot[x].astype(str)
     y_name = str(y) if y else ""
     pct_y = _is_pct_col(y_name)
     money_y = an.is_money(y_name) and not pct_y and an.is_money(getattr(finding, "question", "") + " " + y_name)
@@ -82,23 +94,28 @@ def figure_for(
 
     if style in ("Donut", "Pie") and base_kind != "hist":
         vals = pd.to_numeric(df_plot[y], errors="coerce").fillna(0)
-        # Pie/donut charts require non-negative parts; fall back cleanly if negative values exist
         if (vals < 0).any() or float(vals.sum()) <= 0:
             style = "Vertical Bar"
         else:
+            pie_df = pd.DataFrame({"_lbl": x_series, "_val": vals}).sort_values("_val", ascending=False)
+            if len(pie_df) > 6:
+                other_sum = float(pie_df.iloc[5:]["_val"].sum())
+                pie_df = pd.concat([pie_df.iloc[:5], pd.DataFrame([{"_lbl": "Other", "_val": other_sum}])], ignore_index=True)
             hole = 0.55 if style == "Donut" else 0.0
             fig.add_trace(go.Pie(
-                labels=df_plot[x].astype(str),
-                values=vals,
+                labels=pie_df["_lbl"],
+                values=pie_df["_val"],
                 hole=hole,
-                marker=dict(colors=[palette[i % len(palette)] for i in range(len(df_plot))], line=dict(color=dark_bg, width=2)),
+                marker=dict(colors=[palette[i % len(palette)] for i in range(len(pie_df))], line=dict(color=dark_bg, width=2)),
                 textinfo="label+percent",
-                textfont=dict(color="#F8FAFC" if dark else "#1E293B", size=11),
+                textposition="inside",
+                insidetextorientation="horizontal",
+                textfont=dict(color="#F8FAFC" if dark else "#1E293B", size=10.5),
             ))
             fig.update_layout(
                 paper_bgcolor=paper_bg,
                 font=dict(family=font_family, color=fg),
-                margin=dict(l=16, r=16, t=16, b=16),
+                margin=dict(l=20, r=20, t=16, b=20),
                 legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=fg)),
                 showlegend=True,
             )
@@ -107,14 +124,14 @@ def figure_for(
     if style in ("Line & Area", "line") and base_kind != "hist":
         vals = pd.to_numeric(df_plot[y], errors="coerce")
         fig.add_trace(go.Scatter(
-            x=df_plot[x].astype(str),
+            x=x_series,
             y=vals,
             mode="lines+markers",
             name=y_name,
             line=dict(color=primary, width=3),
             marker=dict(size=7, color=primary),
             fill="tozeroy",
-            fillcolor="rgba(99, 102, 241, 0.14)" if primary == PALETTE[0] else "rgba(56, 189, 248, 0.12)",
+            fillcolor="rgba(99, 102, 241, 0.12)" if primary == PALETTE[0] else "rgba(56, 189, 248, 0.12)",
         ))
     elif style == "Growth %" and base_kind != "hist":
         vals = pd.to_numeric(df_plot[y], errors="coerce")
@@ -122,7 +139,7 @@ def figure_for(
         g_vals = pct_change.fillna(0.0)
         g_colors = [SUCCESS_COLOR if v >= 0 else DANGER_COLOR for v in g_vals]
         fig.add_trace(go.Bar(
-            x=df_plot[x].astype(str),
+            x=x_series,
             y=g_vals,
             marker_color=g_colors,
             text=[f"{v:+.1f}%" if not pd.isna(pct_change.iloc[i]) else "" for i, v in enumerate(g_vals)],
@@ -130,32 +147,29 @@ def figure_for(
             textfont=dict(color=fg, size=10),
         ))
         pct_y, money_y = True, False
-        y_name = f"{y_name} Change (%)"
     elif style == "Horizontal Bar" and base_kind != "hist":
         vals = pd.to_numeric(df_plot[y], errors="coerce")
         colors = [palette[i % len(palette)] if (pd.notna(v) and v >= 0) else DANGER_COLOR for i, v in enumerate(vals)]
         labels = [_fmt_label(v, money_y, pct_y, currency) for v in vals]
         fig.add_trace(go.Bar(
             x=vals,
-            y=df_plot[x].astype(str),
+            y=x_series,
             orientation="h",
             marker_color=colors,
             opacity=0.92,
             text=labels,
             textposition="outside",
-            textfont=dict(color=fg, size=10),
+            textfont=dict(color=fg, size=10.5),
             cliponaxis=False,
         ))
     elif style in ("Vertical Bar", "Grouped Bars", "bar") and base_kind in ("bar", "line"):
         vals = pd.to_numeric(df_plot[y], errors="coerce")
         is_series = (base_kind == "line")
-        if is_series:
-            colors = [primary if (pd.notna(v) and v >= 0) else DANGER_COLOR for v in vals]
-        else:
-            colors = [palette[i % len(palette)] if (pd.notna(v) and v >= 0) else DANGER_COLOR for i, v in enumerate(vals)]
-        labels = [_fmt_label(v, money_y, pct_y, currency) for v in vals] if len(vals) <= 12 else None
+        colors = [primary if (pd.notna(v) and v >= 0) else DANGER_COLOR for v in vals] if is_series else [palette[i % len(palette)] if (pd.notna(v) and v >= 0) else DANGER_COLOR for i, v in enumerate(vals)]
+        show_txt = (not is_series) and (len(vals) <= 10)
+        labels = [_fmt_label(v, money_y, pct_y, currency) for v in vals] if show_txt else None
         fig.add_trace(go.Bar(
-            x=df_plot[x].astype(str),
+            x=x_series,
             y=vals,
             marker_color=colors,
             opacity=0.92,
@@ -180,9 +194,9 @@ def figure_for(
     else:
         return None
 
-    angle = tickangle if tickangle is not None else _auto_tickangle(df_plot[x], style)
-    bot_margin = 56 if angle != 0 else 40
-    top_margin = 28 if style in ("Vertical Bar", "Grouped Bars", "Growth %", "Horizontal Bar") else 18
+    angle = tickangle if tickangle is not None else _auto_tickangle(x_series, style)
+    bot_margin = 55 if angle != 0 else 36
+    top_margin = 24 if style in ("Vertical Bar", "Grouped Bars", "Growth %", "Horizontal Bar") else 16
 
     if style == "Horizontal Bar":
         fig.update_layout(
@@ -191,8 +205,6 @@ def figure_for(
             font=dict(family=font_family, color=fg),
             margin=dict(l=40, r=55, t=top_margin, b=36),
             showlegend=False,
-            xaxis_title=y_name,
-            yaxis_title="",
         )
         fig.update_yaxes(autorange="reversed", showgrid=False, linecolor=grid_c)
         x_tick = dict(showgrid=True, gridcolor=grid_c, linecolor=grid_c)
@@ -206,10 +218,8 @@ def figure_for(
             paper_bgcolor=paper_bg,
             plot_bgcolor=paper_bg,
             font=dict(family=font_family, color=fg),
-            margin=dict(l=45, r=20, t=top_margin, b=bot_margin),
+            margin=dict(l=40, r=20, t=top_margin, b=bot_margin),
             showlegend=False,
-            xaxis_title=str(x),
-            yaxis_title=y_name if base_kind != "hist" else "Count",
         )
         fig.update_xaxes(showgrid=False, linecolor=grid_c, tickcolor=grid_c, tickangle=angle)
         y_tick = dict(showgrid=True, gridcolor=grid_c, linecolor=grid_c)

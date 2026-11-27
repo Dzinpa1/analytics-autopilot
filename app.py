@@ -1282,7 +1282,6 @@ with tab_dash:
     ch1, ch2 = st.columns(2)
 
     with ch1:
-        st.markdown('<div class="chart-box">', unsafe_allow_html=True)
         time_scopes = report_data.get("time_scopes", {})
         detected_years = time_scopes.get("years", [])
         is_multi_year = time_scopes.get("is_multi_year", False)
@@ -1370,10 +1369,9 @@ with tab_dash:
                 fig1.update_layout(barmode="group")
             fig1.update_yaxes(tickprefix=curr_sym, tickformat=",.0f")
             st.plotly_chart(style_chart(fig1, chart1_display_title, n_bars=len(monthly)), use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
     with ch2:
-        st.markdown('<div class="chart-box">', unsafe_allow_html=True)
         c2_head, c2_ctrl = st.columns([1.8, 1.3])
         with c2_head:
             st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Category Portfolio</div>', unsafe_allow_html=True)
@@ -1415,12 +1413,11 @@ with tab_dash:
             fig2.update_xaxes(tickprefix=curr_sym, tickformat=",.0f")
             fig2.update_yaxes(autorange="reversed")
             st.plotly_chart(style_chart(fig2), use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
     ch3, ch4 = st.columns(2)
 
     with ch3:
-        st.markdown('<div class="chart-box">', unsafe_allow_html=True)
         c3_head, c3_ctrl = st.columns([2, 1])
         with c3_head:
             st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Regional Distribution</div>', unsafe_allow_html=True)
@@ -1461,10 +1458,9 @@ with tab_dash:
                 legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT_COLOR)),
             )
             st.plotly_chart(fig3, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
     with ch4:
-        st.markdown('<div class="chart-box">', unsafe_allow_html=True)
         c4_head, c4_cat, c4_c1, c4_c2 = st.columns([1.5, 1.3, 1.1, 0.7])
         with c4_head:
             st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">Product Leaderboard</div>', unsafe_allow_html=True)
@@ -1512,7 +1508,7 @@ with tab_dash:
         else:
             fig4.update_yaxes(tickformat=",.0f")
         st.plotly_chart(style_chart(fig4, n_bars=len(prod_rank), tickangle=-25), use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
 
 
     # ─────────────────────────────────────────────────────────────────────────────

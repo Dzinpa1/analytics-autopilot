@@ -370,7 +370,20 @@ def _format_measure_value(col: str, val, currency: str) -> str:
     if (words & {"margin", "pct", "percent"}) or "%" in str(col):
         pct_val = val * 100.0 if abs(val) <= 1.0 else val
         return f"{pct_val:.1f}%"
-    return an.fmt(val, money=an.is_money(col), sym=currency)
+    pre = currency if an.is_money(col) else ""
+    a = abs(float(val))
+    sign = "-" if val < 0 else ""
+    if a >= 1e12:
+        return f"{sign}{pre}{a / 1e12:.2f}T"
+    if a >= 1e9:
+        return f"{sign}{pre}{a / 1e9:.2f}B"
+    if a >= 1e6:
+        return f"{sign}{pre}{a / 1e6:.2f}M"
+    if a >= 1e3:
+        return f"{sign}{pre}{a / 1e3:.1f}K"
+    if a == int(a):
+        return f"{sign}{pre}{int(a):,}"
+    return f"{sign}{pre}{a:,.2f}"
 
 
 def _measure_kpi_card(df: pd.DataFrame, schema, col: str, agg: str, currency: str) -> dict:
@@ -619,18 +632,46 @@ def build_objective_briefing(results, prepared, is_auto: bool = False) -> str:
     return prefix + ". ".join(snippets) + "."
 
 
+def _clean_chart_title(sp) -> str:
+    """Turn long conversational questions into crisp 2-4 word Studio card titles."""
+    txt = str(sp.text or "").strip()
+    if len(txt) <= 34 and not txt.endswith("?"):
+        return txt
+    if sp.kind == "trend" and sp.measure:
+        return f"{sp.measure} Trajectory"
+    if sp.kind == "composition" and sp.dimension:
+        return f"{sp.dimension} Distribution"
+    if sp.kind == "compare" and sp.dimension and sp.measure:
+        w = an.col_words(sp.dimension)
+        if w & {"product", "sku", "item"}:
+            return f"{sp.dimension} Leaderboard"
+        if w & {"category", "vertical", "segment"}:
+            return f"{sp.dimension} Portfolio"
+        if w & {"region", "area", "zone", "location"}:
+            return f"{sp.dimension}al Distribution" if sp.dimension.lower() == "region" else f"{sp.dimension} Breakdown"
+        return f"{sp.measure} by {sp.dimension}"
+    if sp.kind == "change" and sp.measure:
+        return f"{sp.measure} Variance"
+    if sp.kind == "distribution" and sp.measure:
+        return f"{sp.measure} Spread"
+    if sp.kind == "relationship" and sp.measure and sp.measure2:
+        return f"{sp.measure} vs {sp.measure2}"
+    return txt[:34] + ("…" if len(txt) > 34 else "")
+
+
 def build_objective_takeaways(results) -> list:
     items = []
-    icons = ["📈", "🏆", "🧭", "⚡", "📌", "🔍"]
+    icons = ["📈", "🏆", "📍", "⚡", "📌", "🔍"]
     for i, r in enumerate(results[:3]):
         f = r.finding
+        title = _clean_chart_title(r.spec).upper()
         if f.status in ("ok", "caution"):
             body = f.headline
             if f.details:
                 body += " " + f.details[0]
-            items.append({"icon": icons[i % len(icons)], "title": r.spec.text[:60], "body": body})
+            items.append({"icon": icons[i % len(icons)], "title": title, "body": body})
         else:
-            items.append({"icon": "⚠️", "title": r.spec.text[:60], "body": f.headline})
+            items.append({"icon": "⚠️", "title": title, "body": f.headline})
     return items
 
 
@@ -704,6 +745,13 @@ def render_studio_tab(df: pd.DataFrame, currency: str = "", api_key: str = None)
                         st.rerun()
                 else:
                     st.write(f.headline)
+                with st.expander("Details, caveats & data"):
+                    for d in f.details:
+                        st.write("• " + d)
+                    for c in f.caveats:
+                        st.warning(c)
+                    if f.table is not None and len(f.table):
+                        st.dataframe(f.table.head(100), use_container_width=True, hide_index=True)
                 _adjust_widget(hp, sp, sp.id)
                 if p_qid == sp.id and st.button("🗑 Remove this question", key=f"oq_rm_tab_{sp.id}"):
                     _remove_question(p_qid)
@@ -713,16 +761,47 @@ def render_studio_tab(df: pd.DataFrame, currency: str = "", api_key: str = None)
 
 
 def run_auto_expert_objectives(hp, currency: str = "", limit: int = 4) -> list:
-    """When the user hasn't specified objectives yet, select expert analyses from schema."""
-    if not hp.schema.measures:
+    """Select diverse, Studio-balanced expert visuals (1 trend + distinct dimensions) when no goals set."""
+    s, df = hp.schema, hp.df
+    if not s.measures:
         return []
-    suggested = ob.suggest_objectives(hp, limit=limit)
+    ranked_measures = sorted(
+        [m for m in s.measures if m in df.columns],
+        key=lambda c: (s.columns[c].missing_pct, -float(df[c].abs().sum(skipna=True))),
+    )
+    m0 = ranked_measures[0]
+    dims = [d for d in s.dimensions if d in df.columns and 2 <= df[d].nunique(dropna=True) <= 40]
+    dims.sort(key=lambda d: (
+        0 if (an.col_words(d) & {"category", "region", "product", "method", "channel", "segment"}) else 1,
+        df[d].nunique(dropna=True),
+    ))
+
     specs = []
-    for i, text in enumerate(suggested, 1):
-        try:
-            specs.append(ob.plan_objective(text, hp, obj_id=f"auto_{i}"))
-        except ob.PlanError:
-            continue
+    if s.date:
+        specs.append(ob.ObjectiveSpec(id="auto_trend", text="Performance Trajectory", kind="trend", measure=m0, agg=an.default_agg(m0), planner="auto"))
+
+    for d in dims:
+        if len(specs) >= limit:
+            break
+        nunique = df[d].nunique(dropna=True)
+        w = an.col_words(d)
+        if w & {"region", "area", "zone"} or (len(specs) >= 2 and nunique <= 6):
+            kind = "composition"
+            title = "Regional Distribution" if w & {"region"} else f"{d} Distribution"
+        elif w & {"product", "sku", "item"} or nunique > 7:
+            kind = "compare"
+            title = "Product Leaderboard" if w & {"product"} else f"{d} Leaderboard"
+        else:
+            kind = "compare"
+            title = "Category Portfolio" if w & {"category"} else f"{d} Portfolio"
+        specs.append(ob.ObjectiveSpec(
+            id=f"auto_{len(specs)+1}", text=title, kind=kind,
+            measure=m0, dimension=d, agg=an.default_agg(m0), top_n=10, planner="auto",
+        ))
+
+    if len(specs) < limit and not dims:
+        specs.append(ob.ObjectiveSpec(id="auto_dist", text=f"{m0} Distribution", kind="distribution", measure=m0, agg=an.default_agg(m0), planner="auto"))
+
     return ob.run_objectives(specs, hp, currency)
 
 
@@ -775,10 +854,7 @@ def render_objective_dashboard_tab(
     with col_dl:
         render_clean_btn_fn("obj_dash")
 
-    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-
-    if is_auto and results:
-        st.caption("Showing expert auto-analysis tailored to your columns. Switch to **🎯 Objectives & Data Studio** to ask custom questions or set specific metrics.")
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
     pending_decisions = [r for r in results if r.finding.status in ("decision", "blocked") and not r.feasibility.structural]
     if pending_decisions:
@@ -818,7 +894,7 @@ def render_objective_dashboard_tab(
         st.info("No numeric measures detected to plot. Check column roles in the **🎯 Objectives & Data Studio** tab.")
         return
 
-    # 2-Column Linear Obsidian Interactive Chart Grid (real Streamlit containers, no empty HTML wrapper divs)
+    # Clean 2-Column Studio Chart Grid matching Image 2 (dark #111827 charts, compact controls, zero card clutter)
     sig_prefix = hashlib.md5(f"{len(hp.df)}_{currency}".encode()).hexdigest()[:6]
     all_measures = list(hp.schema.measures)
     grain_map = {"Monthly": "M", "Quarterly": "Q", "Weekly": "W", "Daily": "D"}
@@ -830,98 +906,82 @@ def render_objective_dashboard_tab(
             f, sp = res.finding, res.spec
             card_key = f"{sp.id}_{row_start}_{col_idx}_{sig_prefix}"
             with cols[col_idx]:
-                with st.container(border=True):
-                    if f.status in ("decision", "blocked", "error"):
-                        st.markdown(f"**{_h(sp.text)}**")
-                        st.warning(f.headline)
-                        continue
+                card_title = _clean_chart_title(sp)
+                if f.status in ("decision", "blocked", "error"):
+                    st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{_h(card_title)}</div>', unsafe_allow_html=True)
+                    st.warning(f.headline)
+                    continue
 
-                    base_type = (f.chart or {}).get("type", "")
-                    chosen_style = None
-                    chosen_top_n = None
-                    active_finding = f
-                    card_title = sp.text
+                base_type = (f.chart or {}).get("type", "")
+                chosen_style = None
+                chosen_top_n = None
+                active_finding = f
 
-                    if base_type == "line" and hp.schema.date and sp.measure in hp.df.columns:
-                        c_h, c_gr, c_st = st.columns([1.8, 1.0, 1.2])
-                        c_h.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{_h(card_title)}</div>', unsafe_allow_html=True)
-                        sel_gr = c_gr.selectbox("Granularity", ["Auto", "Monthly", "Quarterly", "Weekly", "Daily"], key=f"obj_gr_{card_key}", label_visibility="collapsed")
-                        chosen_style = c_st.selectbox("Style", ["Line & Area", "Grouped Bars", "Growth %"], key=f"obj_st_{card_key}", label_visibility="collapsed")
-                        if sel_gr != "Auto":
-                            try:
-                                tbl, _ = an.period_table(hp.df, hp.schema.date, sp.measure, sp.agg, grain=grain_map[sel_gr])
-                                used = tbl[tbl["n"] > 0].copy()
-                                if not used.empty:
-                                    y_lbl = f"{sp.agg.title()} {sp.measure}"
-                                    active_finding = an.Finding(
-                                        objective_id=f.objective_id, kind=f.kind, question=f.question,
-                                        status=f.status, headline=f.headline, details=f.details,
-                                        table=used.rename(columns={"label": "Period", "value": y_lbl}),
-                                        chart={"type": "line", "x": "Period", "y": y_lbl},
-                                        caveats=f.caveats, assumptions=f.assumptions,
-                                        coverage_pct=f.coverage_pct, n_rows=f.n_rows, confidence=f.confidence,
-                                    )
-                            except Exception:
-                                pass
+                if base_type == "line" and hp.schema.date and sp.measure in hp.df.columns:
+                    c_h, c_gr, c_st = st.columns([1.8, 1.3, 1.3])
+                    c_h.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{_h(card_title)}</div>', unsafe_allow_html=True)
+                    sel_gr = c_gr.selectbox("Granularity", ["Monthly", "Quarterly", "Weekly", "Daily"], key=f"obj_gr_{card_key}", label_visibility="collapsed")
+                    chosen_style = c_st.selectbox("Style", ["Grouped Bars", "Line & Area", "Growth %"], key=f"obj_st_{card_key}", label_visibility="collapsed")
+                    try:
+                        tbl, _ = an.period_table(hp.df, hp.schema.date, sp.measure, sp.agg, grain=grain_map[sel_gr])
+                        used = tbl[tbl["n"] > 0].copy()
+                        if not used.empty:
+                            y_lbl = f"{sp.agg.title()} {sp.measure}"
+                            active_finding = an.Finding(
+                                objective_id=f.objective_id, kind=f.kind, question=f.question,
+                                status=f.status, headline=f.headline, details=f.details,
+                                table=used.rename(columns={"label": "Period", "value": y_lbl}),
+                                chart={"type": "line", "x": "Period", "y": y_lbl},
+                                caveats=f.caveats, assumptions=f.assumptions,
+                                coverage_pct=f.coverage_pct, n_rows=f.n_rows, confidence=f.confidence,
+                            )
+                    except Exception:
+                        pass
 
-                    elif base_type == "bar" and sp.dimension and len(all_measures) >= 1:
-                        c_h, c_m, c_st, c_n = st.columns([1.6, 1.15, 1.15, 0.7])
-                        m_idx = all_measures.index(sp.measure) if sp.measure in all_measures else 0
-                        sel_m = c_m.selectbox("Metric", all_measures, index=m_idx, key=f"obj_met_{card_key}", label_visibility="collapsed")
-                        default_styles = ["Donut", "Vertical Bar", "Horizontal Bar", "Pie"] if sp.kind == "composition" else (["Horizontal Bar", "Vertical Bar", "Donut", "Pie"] if (f.table is not None and len(f.table) > 6) else ["Vertical Bar", "Horizontal Bar", "Donut", "Pie"])
-                        chosen_style = c_st.selectbox("Style", default_styles, key=f"obj_st_{card_key}", label_visibility="collapsed")
-                        sel_top = c_n.selectbox("Top", [5, 10, "All"], index=1, key=f"obj_top_{card_key}", label_visibility="collapsed")
-                        chosen_top_n = None if sel_top == "All" else int(sel_top)
-
-                        if sel_m != sp.measure:
-                            try:
-                                new_agg = an.default_agg(sel_m)
-                                new_sp = ob.ObjectiveSpec(
-                                    id=sp.id, text=f"{sel_m} by {sp.dimension}",
-                                    kind=sp.kind if sp.kind in ("compare", "composition") else "compare",
-                                    measure=sel_m, dimension=sp.dimension, agg=new_agg, top_n=12,
-                                )
-                                active_finding = ob.ANALYSES[new_sp.kind](hp.df, hp.schema, new_sp, currency)
-                                card_title = new_sp.text
-                            except Exception:
-                                pass
-                        c_h.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{_h(card_title)}</div>', unsafe_allow_html=True)
-
+                elif base_type == "bar" and sp.dimension and len(all_measures) >= 1:
+                    c_h, c_m, c_st, c_n = st.columns([1.6, 1.15, 1.15, 0.7])
+                    m_idx = all_measures.index(sp.measure) if sp.measure in all_measures else 0
+                    sel_m = c_m.selectbox("Metric", all_measures, index=m_idx, key=f"obj_met_{card_key}", label_visibility="collapsed")
+                    n_groups = len(f.table) if f.table is not None else 0
+                    if sp.kind == "composition" or (n_groups <= 6 and "Region" in str(sp.dimension)):
+                        default_styles = ["Donut", "Vertical Bar", "Horizontal Bar", "Pie"]
+                    elif n_groups <= 6 and any(w in str(sp.dimension).lower() for w in ("category", "method", "channel", "segment")):
+                        default_styles = ["Horizontal Bar", "Donut", "Vertical Bar", "Pie"]
                     else:
-                        conf_color = "#34D399" if f.confidence == "high" else ("#FBBF24" if f.confidence == "medium" else "#F87171")
-                        st.markdown(
-                            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
-                            f'<span style="font-size:14px;font-weight:700;color:#F8FAFC;">{_h(card_title)}</span>'
-                            f'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(148,163,184,0.12);color:{conf_color};text-transform:uppercase;">{_h(active_finding.confidence)} conf.</span>'
-                            f'</div>',
-                            unsafe_allow_html=True,
-                        )
+                        default_styles = ["Vertical Bar", "Horizontal Bar", "Donut", "Pie"]
+                    chosen_style = c_st.selectbox("Style", default_styles, key=f"obj_st_{card_key}", label_visibility="collapsed")
+                    sel_top = c_n.selectbox("Top", [5, 10, "All"], index=0 if n_groups > 6 else 1, key=f"obj_top_{card_key}", label_visibility="collapsed")
+                    chosen_top_n = None if sel_top == "All" else int(sel_top)
 
-                    st.markdown(
-                        f'<div style="font-size:12.5px;color:#CBD5E1;margin-bottom:8px;line-height:1.45;">{_h(active_finding.headline)}</div>',
-                        unsafe_allow_html=True,
-                    )
-                    fig = figure_for(
-                        active_finding,
-                        dark=True,
-                        brand_color=brand_color,
-                        chart_style=chosen_style,
-                        currency=currency,
-                        top_n=chosen_top_n,
-                    )
-                    if fig is not None:
-                        st.plotly_chart(fig, use_container_width=True, key=f"oq_dash_fig_{card_key}")
-                    elif active_finding.details:
-                        for d in active_finding.details[:4]:
-                            st.write("• " + d)
-                    st.caption(f"{active_finding.n_rows:,} rows used · {active_finding.coverage_pct:.0f}% coverage · {active_finding.confidence} confidence")
-                    with st.expander("Details, caveats & data"):
-                        for d in active_finding.details:
-                            st.write("• " + d)
-                        for c in active_finding.caveats:
-                            st.warning(c)
-                        if active_finding.table is not None and len(active_finding.table):
-                            st.dataframe(active_finding.table.head(100), use_container_width=True, hide_index=True)
+                    if sel_m != sp.measure:
+                        try:
+                            new_agg = an.default_agg(sel_m)
+                            new_sp = ob.ObjectiveSpec(
+                                id=sp.id, text=f"{sel_m} by {sp.dimension}",
+                                kind=sp.kind if sp.kind in ("compare", "composition") else "compare",
+                                measure=sel_m, dimension=sp.dimension, agg=new_agg, top_n=12,
+                            )
+                            active_finding = ob.ANALYSES[new_sp.kind](hp.df, hp.schema, new_sp, currency)
+                        except Exception:
+                            pass
+                    c_h.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{_h(card_title)}</div>', unsafe_allow_html=True)
+
+                else:
+                    st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{_h(card_title)}</div>', unsafe_allow_html=True)
+
+                fig = figure_for(
+                    active_finding,
+                    dark=True,
+                    brand_color=brand_color,
+                    chart_style=chosen_style,
+                    currency=currency,
+                    top_n=chosen_top_n,
+                )
+                if fig is not None:
+                    st.plotly_chart(fig, use_container_width=True, key=f"oq_dash_fig_{card_key}")
+                elif active_finding.details:
+                    for d in active_finding.details[:4]:
+                        st.write("• " + d)
 
     takeaways = (ai_nar or {}).get("takeaways") or build_objective_takeaways(results)
     if takeaways:
