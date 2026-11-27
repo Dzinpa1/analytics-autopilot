@@ -897,6 +897,7 @@ def render_objective_dashboard_tab(
     # Clean 2-Column Studio Chart Grid matching Image 2 (dark #111827 charts, compact controls, zero card clutter)
     sig_prefix = hashlib.md5(f"{len(hp.df)}_{currency}".encode()).hexdigest()[:6]
     all_measures = list(hp.schema.measures)
+    valid_dims = [d for d in hp.schema.dimensions if d in hp.df.columns and 2 <= hp.df[d].nunique(dropna=True) <= 40]
     grain_map = {"Monthly": "M", "Quarterly": "Q", "Weekly": "W", "Daily": "D"}
 
     for row_start in range(0, len(results), 2):
@@ -904,7 +905,9 @@ def render_objective_dashboard_tab(
         cols = st.columns(2)
         for col_idx, res in enumerate(row_items):
             f, sp = res.finding, res.spec
-            card_key = f"{sp.id}_{row_start}_{col_idx}_{sig_prefix}"
+            eff_dim = sp.dimension or (f.chart or {}).get("x")
+            q_hash = hashlib.md5(f"{sp.kind}_{sp.measure}_{eff_dim}_{sp.text}".encode()).hexdigest()[:6]
+            card_key = f"{sp.id}_{q_hash}_{row_start}_{col_idx}_{sig_prefix}"
             with cols[col_idx]:
                 card_title = _clean_chart_title(sp)
                 if f.status in ("decision", "blocked", "error"):
@@ -938,36 +941,79 @@ def render_objective_dashboard_tab(
                     except Exception:
                         pass
 
-                elif base_type == "bar" and sp.dimension and len(all_measures) >= 1:
+                elif base_type == "bar" and sp.kind == "change" and eff_dim and all_measures and valid_dims:
+                    c_h, c_m, c_d, c_st = st.columns([1.5, 1.05, 1.05, 1.0])
+                    m_idx = all_measures.index(sp.measure) if sp.measure in all_measures else 0
+                    d_idx = valid_dims.index(eff_dim) if eff_dim in valid_dims else 0
+                    sel_m = c_m.selectbox("Metric", all_measures, index=m_idx, key=f"obj_met_{card_key}", label_visibility="collapsed")
+                    sel_d = c_d.selectbox("Dimension", valid_dims, index=d_idx, key=f"obj_dim_{card_key}", label_visibility="collapsed")
+                    if sel_m != sp.measure or sel_d != eff_dim:
+                        try:
+                            new_agg = sp.agg if (sel_m == sp.measure and sp.agg in ob.AGGS) else an.default_agg(sel_m)
+                            new_sp = ob.ObjectiveSpec(
+                                id=sp.id, text=f"{sel_m} Variance by {sel_d}", kind="change",
+                                measure=sel_m, dimension=sel_d, agg=new_agg,
+                                base_range=sp.base_range, focus_range=sp.focus_range,
+                                base_label=sp.base_label, focus_label=sp.focus_label,
+                                assumptions=list(sp.assumptions),
+                            )
+                            active_finding = ob.ANALYSES["change"](hp.df, hp.schema, new_sp, currency)
+                            card_title = f"{sel_m} Variance"
+                        except Exception:
+                            pass
+                    # Keep diverging (+ / -) variance charts honest: Donut/Pie only when values don't cross zero
+                    cy = (active_finding.chart or {}).get("y")
+                    vals = pd.to_numeric(active_finding.table[cy], errors="coerce").dropna() if (active_finding.table is not None and cy in active_finding.table.columns) else pd.Series(dtype=float)
+                    has_neg = vals.empty or bool((vals < 0).any()) or float(vals.sum()) <= 0
+                    style_opts = ["Vertical Bar", "Horizontal Bar"] if has_neg else ["Vertical Bar", "Horizontal Bar", "Donut", "Pie"]
+                    st_key = f"obj_st_{card_key}"
+                    if st.session_state.get(st_key) not in style_opts:
+                        st.session_state[st_key] = style_opts[0]
+                    chosen_style = c_st.selectbox("Style", style_opts, key=st_key, label_visibility="collapsed")
+                    c_h.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{_h(card_title)}</div>', unsafe_allow_html=True)
+
+                elif base_type == "bar" and eff_dim and len(all_measures) >= 1:
                     c_h, c_m, c_st, c_n = st.columns([1.6, 1.15, 1.15, 0.7])
                     m_idx = all_measures.index(sp.measure) if sp.measure in all_measures else 0
                     sel_m = c_m.selectbox("Metric", all_measures, index=m_idx, key=f"obj_met_{card_key}", label_visibility="collapsed")
-                    n_groups = len(f.table) if f.table is not None else 0
-                    if sp.kind == "composition" or (n_groups <= 6 and "Region" in str(sp.dimension)):
-                        default_styles = ["Donut", "Vertical Bar", "Horizontal Bar", "Pie"]
-                    elif n_groups <= 6 and any(w in str(sp.dimension).lower() for w in ("category", "method", "channel", "segment")):
-                        default_styles = ["Horizontal Bar", "Donut", "Vertical Bar", "Pie"]
-                    else:
-                        default_styles = ["Vertical Bar", "Horizontal Bar", "Donut", "Pie"]
-                    chosen_style = c_st.selectbox("Style", default_styles, key=f"obj_st_{card_key}", label_visibility="collapsed")
-                    sel_top = c_n.selectbox("Top", [5, 10, "All"], index=0 if n_groups > 6 else 1, key=f"obj_top_{card_key}", label_visibility="collapsed")
-                    chosen_top_n = None if sel_top == "All" else int(sel_top)
-
                     if sel_m != sp.measure:
                         try:
                             new_agg = an.default_agg(sel_m)
                             new_sp = ob.ObjectiveSpec(
-                                id=sp.id, text=f"{sel_m} by {sp.dimension}",
+                                id=sp.id, text=f"{sel_m} by {eff_dim}",
                                 kind=sp.kind if sp.kind in ("compare", "composition") else "compare",
-                                measure=sel_m, dimension=sp.dimension, agg=new_agg, top_n=12,
+                                measure=sel_m, dimension=eff_dim, agg=new_agg, top_n=12,
+                                direction=sp.direction,
                             )
                             active_finding = ob.ANALYSES[new_sp.kind](hp.df, hp.schema, new_sp, currency)
                         except Exception:
                             pass
+                    n_groups = len(active_finding.table) if active_finding.table is not None else 0
+                    cy = (active_finding.chart or {}).get("y")
+                    vals = pd.to_numeric(active_finding.table[cy], errors="coerce").dropna() if (active_finding.table is not None and cy in active_finding.table.columns) else pd.Series(dtype=float)
+                    has_neg = vals.empty or bool((vals < 0).any()) or float(vals.sum()) <= 0
+                    if has_neg:
+                        default_styles = ["Vertical Bar", "Horizontal Bar"]
+                    elif sp.kind == "composition" or (n_groups <= 6 and "Region" in str(eff_dim)):
+                        default_styles = ["Donut", "Vertical Bar", "Horizontal Bar", "Pie"]
+                    elif n_groups <= 6 and any(w in str(eff_dim).lower() for w in ("category", "method", "channel", "segment")):
+                        default_styles = ["Horizontal Bar", "Donut", "Vertical Bar", "Pie"]
+                    else:
+                        default_styles = ["Vertical Bar", "Horizontal Bar", "Donut", "Pie"]
+                    st_key = f"obj_st_{card_key}"
+                    if st.session_state.get(st_key) not in default_styles:
+                        st.session_state[st_key] = default_styles[0]
+                    chosen_style = c_st.selectbox("Style", default_styles, key=st_key, label_visibility="collapsed")
+                    sel_top = c_n.selectbox("Top", [5, 10, "All"], index=0 if n_groups > 6 else 1, key=f"obj_top_{card_key}", label_visibility="collapsed")
+                    chosen_top_n = None if sel_top == "All" else int(sel_top)
                     c_h.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{_h(card_title)}</div>', unsafe_allow_html=True)
 
                 else:
                     st.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{_h(card_title)}</div>', unsafe_allow_html=True)
+
+                if active_finding.status in ("blocked", "error") or active_finding.table is None or active_finding.table.empty:
+                    st.warning(active_finding.headline or "Not enough valid rows for this selection.")
+                    continue
 
                 fig = figure_for(
                     active_finding,

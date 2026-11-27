@@ -249,3 +249,39 @@ class TestDynamicObjectiveKpis(unittest.TestCase):
         self.assertGreaterEqual(len(expanded), 3)
         titles = [r.spec.text for r in expanded]
         self.assertEqual(len(titles), len(set(titles)))
+
+    def test_change_question_renders_metric_dimension_style_controls_and_honests_negatives(self):
+        import numpy as np
+        import pandas as pd
+        from schema import prepare_frame
+        import objectives as ob
+        import analyses as an
+
+        at = select_mode(fresh())
+        at.text_input[0].set_value("Why did Revenue change between the last two months?")
+        [b for b in at.button if b.label == "➕ Add question"][0].click()
+        at.run()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+
+        # Verify Metric, Dimension, Style selectboxes exist on the change card
+        labels = [s.label for s in at.selectbox]
+        self.assertIn("Metric", labels)
+        self.assertIn("Dimension", labels)
+        style_box = [s for s in at.selectbox if s.label == "Style"][0]
+        # Signed variance (+ and -) must NOT offer Donut/Pie
+        self.assertEqual(style_box.options, ["Vertical Bar", "Horizontal Bar"])
+
+        # Switching Dimension to Category & Style to Horizontal Bar works cleanly
+        dim_box = [s for s in at.selectbox if s.label == "Dimension"][0]
+        dim_box.set_value("Category")
+        style_box.set_value("Horizontal Bar")
+        at.run()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+
+        # Direct unit check that analyze_change respects explicit dimension override
+        from generate_data import generate_sales_data
+        prep = prepare_frame(generate_sales_data())
+        sp = ob.plan_objective("Why did Revenue change between the last two months?", prep, "o1")
+        sp_cat = ob.override_spec(sp, prep, dimension="Category")
+        f_cat = an.analyze_change(prep.df, prep.schema, sp_cat, "$")
+        self.assertEqual(f_cat.chart["x"], "Category")

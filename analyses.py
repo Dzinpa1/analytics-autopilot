@@ -351,7 +351,8 @@ def analyze_change(df, schema, spec, sym="") -> Finding:
             rows.sort(key=lambda r: -abs(r[3]))
         else:
             rows.sort(key=lambda r: -abs(r[2]))
-        dim, lead, ch, share, t = rows[0]
+        picked = next((r for r in rows if spec.dimension and r[0] == spec.dimension), rows[0])
+        dim, lead, ch, share, t = picked
         if agg == "sum" and delta != 0:
             f.details.append(f"Biggest single driver: {dim} = {lead}, {fmt(ch, money, sym)} change, which is {abs(share):.0f}% of the net change"
                              + (" (more than all of it, other groups moved the opposite way)." if abs(share) > 100 else "."))

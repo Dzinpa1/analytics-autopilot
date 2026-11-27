@@ -569,13 +569,12 @@ with st.sidebar:
 
     # Sync title with session state when data source or mode changes
     active_source_id = uploaded_file.name if uploaded_file else f"sample_{report_mode}"
-    if st.session_state.get("last_source_id") != active_source_id:
+    if "presentation_title_input" not in st.session_state or st.session_state.get("last_source_id") != active_source_id:
         st.session_state["last_source_id"] = active_source_id
         st.session_state["presentation_title_input"] = suggested_title
 
     report_title = st.text_input(
         "Presentation Title",
-        value=st.session_state.get("presentation_title_input", suggested_title),
         key="presentation_title_input",
         label_visibility="collapsed"
     )
