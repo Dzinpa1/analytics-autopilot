@@ -206,3 +206,46 @@ class TestDynamicObjectiveKpis(unittest.TestCase):
 
         auto_cards = compute_objective_kpis(results[:1], prep, currency="$", is_auto=True)
         self.assertGreaterEqual(len(auto_cards), 4)
+
+    def test_multi_metric_prompt_does_not_poison_total_with_average_and_counts_distinct_entities(self):
+        import numpy as np
+        import pandas as pd
+        from schema import prepare_frame
+        import objectives as ob
+        from objectives_ui import compute_objective_kpis, expand_dashboard_results
+
+        rng = np.random.default_rng(11)
+        n = 60
+        df = pd.DataFrame({
+            "Invoice Date": pd.date_range("2022-01-01", periods=n, freq="6D"),
+            "Retailer": rng.choice(["Walmart", "Target", "Foot Locker", "Kohl's", "Sports Direct", "Amazon"], n),
+            "Retailer ID": rng.choice([1185732, 1189203, 1197831, 1128299], n),
+            "Region": rng.choice(["West", "Northeast", "Southeast", "South", "Midwest"], n),
+            "Beverage Product": rng.choice(["Coca-Cola", "Sprite", "Fanta", "Dasani", "Powerade"], n),
+            "Delivery Company": rng.choice(["USPS", "FedEx", "DHL", "UPS"], n),
+            "Total Sales": rng.uniform(1000, 4000, n),
+            "Operating Profit": rng.uniform(300, 1500, n),
+            "Units Sold": rng.integers(50, 300, n),
+            "Days to Delivery": rng.uniform(2.0, 9.0, n),
+        })
+        prep = prepare_frame(df)
+        q = "what was the Total sales, Total profit, Number of retailers, Total units sold and Average days to delivery"
+        sp = ob.plan_objective(q, prep, "o1")
+        # 'Average' on Days to Delivery must NOT poison Total Sales into mean!
+        self.assertEqual(sp.measure, "Total Sales")
+        self.assertEqual(sp.agg, "sum")
+        res = ob.run_objectives([sp], prep, "$")
+        cards = compute_objective_kpis(res, prep, currency="$", is_auto=False)
+        self.assertEqual(len(cards), 5, [c["label"] for c in cards])
+        by_col = {c["col"]: c for c in cards}
+        self.assertEqual(by_col["Total Sales"]["agg"], "sum")
+        self.assertEqual(by_col["Operating Profit"]["agg"], "sum")
+        self.assertEqual(by_col["Retailer"]["agg"], "nunique")
+        self.assertEqual(by_col["Retailer"]["value"], "6")
+        self.assertEqual(by_col["Units Sold"]["agg"], "sum")
+        self.assertEqual(by_col["Days to Delivery"]["agg"], "mean")
+
+        expanded = expand_dashboard_results(res, prep, currency="$", is_auto=False)
+        self.assertGreaterEqual(len(expanded), 3)
+        titles = [r.spec.text for r in expanded]
+        self.assertEqual(len(titles), len(set(titles)))

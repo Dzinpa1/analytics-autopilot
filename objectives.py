@@ -113,6 +113,9 @@ def _expand(tokens) -> set:
     return out
 
 
+_AGG_MODIFIERS = {"total", "sum", "average", "avg", "mean", "median", "min", "max", "count", "number", "net", "gross"}
+
+
 def _match_columns(text: str, columns: list) -> list:
     """Return [(column, score, position)] for columns mentioned in the text, best first."""
     low = text.lower()
@@ -123,7 +126,12 @@ def _match_columns(text: str, columns: list) -> list:
         words = [_stem(w) for w in col_words(c) if w not in _STOP]
         if not words:
             continue
+        sub_words = [w for w in words if w not in _AGG_MODIFIERS]
         hit = sum(1 for w in words if w in exp)
+        # If the column has domain words (e.g. 'sales' in 'Total Sales'), require at least one domain hit
+        # so 'Total profit' never false-matches 'Total Sales' on the modifier 'total' alone.
+        if sub_words and not any(w in exp for w in sub_words):
+            continue
         score = hit / len(words)
         raw = re.sub(r"[^a-z0-9]+", " ", str(c).lower()).strip()
         if raw and raw in re.sub(r"[^a-z0-9]+", " ", low):
@@ -143,19 +151,75 @@ def _detect_kind(text: str) -> str:
     return "overview"
 
 
-def _agg_from_text(text: str, measure: str) -> tuple:
-    """Returns (agg, explanation, explicit) - explicit=True when the user's words decided it."""
-    low = text.lower()
+def _clause_for_measure(text: str, measure: str) -> str:
+    """Return the comma/and clause that contains `measure` so modifiers on other items don't bleed over."""
+    parts = [p.strip() for p in re.split(r"\s*(?:,|;|\band\b|&)\s*", text, flags=re.I) if p.strip()]
+    if len(parts) <= 1:
+        return text
+    m_words = {_stem(w) for w in col_words(measure) if w not in _STOP}
+    best, best_hits = None, 0
+    for p in parts:
+        p_exp = _expand(_tokens(p))
+        hits = sum(1 for w in m_words if w in p_exp)
+        if hits > best_hits:
+            best_hits, best = hits, p
+    return best if best is not None else text
+
+
+def _agg_from_clause(clause: str, measure: str) -> tuple:
+    """Determine aggregation purely from a single clause."""
+    low = clause.lower()
     if re.search(r"\b(median)\b", low):
         return "median", "Using the median because you asked for it.", True
     if re.search(r"\b(average|mean|avg|typical)\b", low):
         return "mean", "Using the average because you asked for it.", True
     if re.search(r"how many|number of|\bcount\b", low):
         return "count", "Counting records because the question asks 'how many'.", True
+    if re.search(r"\b(total|sum)\b", low):
+        return "sum", "Adding values up because you asked for the total.", True
     agg = default_agg(measure)
     why = ("adding the values up (it looks like an amount or quantity)" if agg == "sum"
            else "averaging (it looks like a rate, score or price, which should not be added up)")
     return agg, f"For '{measure}' I am {why}. Change this if that is wrong.", False
+
+
+def _agg_from_text(text: str, measure: str) -> tuple:
+    """Returns (agg, explanation, explicit) scoped to the clause mentioning `measure`."""
+    clause = _clause_for_measure(text, measure)
+    return _agg_from_clause(clause, measure)
+
+
+def extract_requested_kpis(text: str, prepared: PreparedFrame) -> list:
+    """Parse multi-metric questions (e.g. 'Total sales, Total profit, Number of retailers, Average days...')
+    into an ordered list of clean KPI specs: {type: 'measure'|'distinct', col, agg, label}."""
+    s = prepared.schema
+    parts = [p.strip() for p in re.split(r"\s*(?:,|;|\band\b|&)\s*", text or "", flags=re.I) if p.strip()]
+    out, seen = [], set()
+    entity_cols = list(s.dimensions) + list(s.ids)
+
+    for p in parts:
+        low = p.lower()
+        count_m = re.search(r"(?:number of|how many|count of|unique|distinct)\s+(.+)", low)
+        if count_m and entity_cols:
+            target = count_m.group(1)
+            matched_ent = _match_columns(target, entity_cols)
+            if not matched_ent:
+                matched_ent = _match_columns(p, entity_cols)
+            if matched_ent:
+                col = matched_ent[0][0]
+                if ("distinct", col) not in seen:
+                    seen.add(("distinct", col))
+                    out.append({"type": "distinct", "col": col, "agg": "nunique", "label": f"Unique {col}"})
+                continue
+
+        matched_meas = _match_columns(p, s.measures)
+        if matched_meas:
+            col = matched_meas[0][0]
+            agg, _, _ = _agg_from_clause(p, col)
+            if ("measure", col, agg) not in seen:
+                seen.add(("measure", col, agg))
+                out.append({"type": "measure", "col": col, "agg": agg})
+    return out
 
 
 # ---------------------------------------------------------------------------------------------

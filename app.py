@@ -614,6 +614,7 @@ from objectives_ui import (
     render_studio_tab,
     run_auto_expert_objectives,
     compute_objective_kpis,
+    expand_dashboard_results,
     render_objective_dashboard_tab,
     build_objective_slide_previews,
 )
@@ -825,6 +826,7 @@ if use_objective_dashboard:
         active_results = user_results
 
     obj_kpis = compute_objective_kpis(active_results, scoped_hp, currency=curr_sym, is_auto=is_auto)
+    dashboard_results = expand_dashboard_results(active_results, scoped_hp, currency=curr_sym, is_auto=is_auto)
     obj_wb_key = ("obj_wb", obj_sig, curr_sym, active_scope_id, len(hp.df), tuple(hp.log))
     obj_stem = os.path.splitext(uploaded_file.name)[0].strip().replace(" ", "_") if uploaded_file else report_title.strip().replace(" ", "_")
 
@@ -849,7 +851,7 @@ if use_objective_dashboard:
     with tab_dash:
         render_objective_dashboard_tab(
             hp=scoped_hp,
-            results=active_results,
+            results=dashboard_results,
             kpi_cards=obj_kpis,
             scope_labels=scope_labels,
             sel_scope_idx=sel_scope_idx,
@@ -865,7 +867,7 @@ if use_objective_dashboard:
         export_title = f"{report_title} ({active_scope_name})" if active_scope_id != "all" else report_title
         mode_lbl = "Auto-Expert Analysis" if is_auto else "Objective-Driven Analysis"
         obj_slides = build_objective_slide_previews(
-            results=active_results, kpi_cards=obj_kpis, prepared=scoped_hp,
+            results=dashboard_results, kpi_cards=obj_kpis, prepared=scoped_hp,
             title=export_title, mode_label=mode_lbl, brand_color=brand_color, logo_b64=logo_b64,
         )
         render_slide_carousel(obj_slides)
@@ -873,10 +875,10 @@ if use_objective_dashboard:
         deck_key = (
             "obj_deck", obj_sig, active_scope_id, curr_sym, export_title, brand_color, brand_name,
             logo_file.name if logo_file else None,
-            tuple((r.spec.id, r.spec.text, r.finding.status, r.finding.headline) for r in active_results),
+            tuple((r.spec.id, r.spec.text, r.finding.status, r.finding.headline) for r in dashboard_results),
             tuple((k["label"], k["value"]) for k in obj_kpis),
         )
-        answered_objs = [r for r in active_results if r.finding.status in ("ok", "caution")]
+        answered_objs = [r for r in dashboard_results if r.finding.status in ("ok", "caution")]
         safe_title = export_title.replace(" ", "_")
         if not answered_objs:
             st.caption("Answer at least one objective to export a PowerPoint deck.")
@@ -906,9 +908,9 @@ if use_objective_dashboard:
                         with open(l_path, "wb") as lf:
                             lf.write(logo_file.getbuffer())
                     p_path = build_objective_deck(
-                        active_results, title=export_title, quality_notes=hp.log,
+                        dashboard_results, title=export_title, quality_notes=hp.log,
                         brand_color=brand_color, brand_name=brand_name or None,
-                        logo_path=l_path, output_dir=tmp_dir, kpis=obj_kpis,
+                        logo_path=l_path, output_dir=tmp_dir, kpis=obj_kpis, currency=curr_sym,
                     )
                     with open(p_path, "rb") as pf:
                         st.session_state["oq_deck"] = {"key": deck_key, "bytes": pf.read()}

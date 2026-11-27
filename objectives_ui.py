@@ -377,25 +377,54 @@ def _measure_kpi_card(df: pd.DataFrame, schema, col: str, agg: str, currency: st
     return {"label": label, "value": val_str, "pill": pill, "pill_class": pill_class, "col": col, "agg": agg}
 
 
+def _distinct_kpi_card(df: pd.DataFrame, col: str, label: Optional[str] = None) -> dict:
+    s = df[col].dropna()
+    n_unique = int(s.nunique())
+    n_total = len(df)
+    cov = (len(s) / n_total * 100.0) if n_total else 0.0
+    nice_lbl = label or f"Unique {col}"
+    pill = f"Across {len(s):,} records" if cov >= 99.5 else f"{cov:.0f}% coverage ({len(s):,} rows)"
+    return {"label": nice_lbl, "value": f"{n_unique:,}", "pill": pill, "pill_class": "pill-blue", "col": col, "agg": "nunique"}
+
+
 def compute_objective_kpis(results, prepared, currency: str = "", is_auto: bool = False) -> list:
-    """Build KPI cards strictly relevant to active objectives (scales cleanly beyond 4 cards)."""
+    """Build KPI cards strictly relevant to active objectives (supports >4 cards & multi-metric prompts)."""
     df, schema = prepared.df, prepared.schema
     cards, seen = [], set()
 
     for res in results:
         sp = res.spec
+        # First parse multi-KPI clauses from the user's question text (handles comma/and metric lists)
+        extracted = ob.extract_requested_kpis(sp.text, prepared) if not is_auto else []
+        if extracted:
+            for item in extracted:
+                col = item["col"]
+                if col not in df.columns:
+                    continue
+                if item["type"] == "distinct":
+                    key = ("distinct", col, "nunique")
+                    if key not in seen:
+                        seen.add(key)
+                        cards.append(_distinct_kpi_card(df, col, label=item.get("label")))
+                else:
+                    agg = item["agg"]
+                    key = ("measure", col, agg)
+                    if key not in seen:
+                        seen.add(key)
+                        cards.append(_measure_kpi_card(df, schema, col, agg, currency))
+            continue
+
         for col in (sp.measure, sp.measure2):
             if not col or col not in df.columns:
                 continue
             agg = sp.agg if (col == sp.measure and sp.agg in ("sum", "mean", "median", "count")) else an.default_agg(col)
-            key = (col, agg)
+            key = ("measure", col, agg)
             if key in seen:
                 continue
             seen.add(key)
             cards.append(_measure_kpi_card(df, schema, col, agg, currency))
 
     if is_auto:
-        # In Auto-Expert mode, populate up to 4 clean non-ID measures if fewer were triggered by suggestions
         ranked_measures = sorted(
             [m for m in schema.measures if m in df.columns],
             key=lambda c: (schema.columns[c].missing_pct, -float(df[c].abs().sum(skipna=True))),
@@ -404,8 +433,8 @@ def compute_objective_kpis(results, prepared, currency: str = "", is_auto: bool 
             if len(cards) >= 4:
                 break
             agg = an.default_agg(col)
-            if (col, agg) not in seen:
-                seen.add((col, agg))
+            if ("measure", col, agg) not in seen:
+                seen.add(("measure", col, agg))
                 cards.append(_measure_kpi_card(df, schema, col, agg, currency))
 
     if not cards or (is_auto and len(cards) < 4):
@@ -416,6 +445,111 @@ def compute_objective_kpis(results, prepared, currency: str = "", is_auto: bool 
             "pill_class": "pill-amber",
         })
     return cards
+
+
+def expand_dashboard_results(results, prepared, currency: str = "", is_auto: bool = False, target_charts: int = 4) -> list:
+    """Deduplicate identical charts and expand multi-KPI overview prompts into distinct relevant visuals."""
+    if not results:
+        return results
+
+    deduped, seen_sigs = [], set()
+    for r in results:
+        sp = r.spec
+        sig = (sp.kind, sp.measure, sp.measure2, sp.dimension, sp.agg)
+        if sig not in seen_sigs:
+            seen_sigs.add(sig)
+            deduped.append(r)
+
+    if is_auto:
+        return deduped
+
+    # Only expand when the user asked pure 'overview' / multi-KPI summary questions (preserve explicit analytical questions)
+    non_overview = [r for r in deduped if r.spec.kind != "overview"]
+    if non_overview:
+        return deduped
+
+    # Broad overview / multi-KPI summary prompt -> build distinct charts using ONLY the measures user asked for
+    df, schema = prepared.df, prepared.schema
+    requested_measures = []
+    seen_m = set()
+    for r in results:
+        for item in ob.extract_requested_kpis(r.spec.text, prepared):
+            if item["type"] == "measure" and item["col"] in schema.measures:
+                key = (item["col"], item["agg"])
+                if key not in seen_m:
+                    seen_m.add(key)
+                    requested_measures.append(key)
+    if not requested_measures:
+        for r in deduped:
+            if r.spec.measure and r.spec.measure in schema.measures:
+                key = (r.spec.measure, r.spec.agg)
+                if key not in seen_m:
+                    seen_m.add(key)
+                    requested_measures.append(key)
+    if not requested_measures:
+        return deduped
+
+    # Rank meaningful grouping dimensions (2..25 unique groups, preferring business attributes like Product/Region/Method)
+    dims = [
+        d for d in schema.dimensions
+        if d in df.columns and 2 <= df[d].nunique(dropna=True) <= 25
+    ]
+    def _dim_priority(d):
+        w = an.col_words(d)
+        preferred = 0 if (w & {"product", "category", "region", "method", "channel", "segment", "department", "retailer", "delivery"}) else 1
+        return (preferred, abs(df[d].nunique(dropna=True) - 5))
+    dims.sort(key=_dim_priority)
+
+    planned_specs = []
+    used_sigs = set()
+    m0, agg0 = requested_measures[0]
+
+    if schema.date:
+        planned_specs.append(ob.ObjectiveSpec(
+            id="exp_trend", text=f"{m0} Trajectory Over Time", kind="trend",
+            measure=m0, agg=agg0, planner="auto",
+        ))
+        used_sigs.add(("trend", m0, None))
+
+    dim_idx = 0
+    for idx, (m, agg) in enumerate(requested_measures):
+        if len(planned_specs) >= target_charts or not dims:
+            break
+        dim = dims[dim_idx % len(dims)]
+        dim_idx += 1
+        kind = "composition" if (idx == 1 and df[dim].nunique(dropna=True) <= 6 and agg == "sum") else "compare"
+        sig = (kind, m, dim)
+        if sig in used_sigs:
+            continue
+        used_sigs.add(sig)
+        lbl = {"sum": "Total", "mean": "Avg", "median": "Median", "count": "Count"}.get(agg, "")
+        title = f"{lbl} {m} by {dim}" if not m.lower().startswith(lbl.lower()) else f"{m} by {dim}"
+        planned_specs.append(ob.ObjectiveSpec(
+            id=f"exp_{len(planned_specs)+1}", text=title, kind=kind,
+            measure=m, dimension=dim, agg=agg, top_n=10, planner="auto",
+        ))
+
+    # If user only asked 1 measure across multiple dimensions, vary across remaining dimensions
+    m_i = 0
+    while len(planned_specs) < target_charts and dims and dim_idx < len(dims) * 2:
+        dim = dims[dim_idx % len(dims)]
+        dim_idx += 1
+        m, agg = requested_measures[m_i % len(requested_measures)]
+        m_i += 1
+        sig = ("compare", m, dim)
+        if sig in used_sigs or ("composition", m, dim) in used_sigs:
+            continue
+        used_sigs.add(sig)
+        planned_specs.append(ob.ObjectiveSpec(
+            id=f"exp_{len(planned_specs)+1}", text=f"{m} by {dim}", kind="compare",
+            measure=m, dimension=dim, agg=agg, top_n=10, planner="auto",
+        ))
+
+    if not planned_specs:
+        return deduped
+    expanded = ob.run_objectives(planned_specs, prepared, currency)
+    valid = [r for r in expanded if r.finding.status in ("ok", "caution")]
+    return valid if valid else deduped
 
 
 def render_kpi_grid_html(kpi_cards: list) -> str:
@@ -438,7 +572,14 @@ def build_objective_briefing(results, prepared, is_auto: bool = False) -> str:
     if not answered:
         return f"Loaded {len(prepared.df):,} validated records across {len(prepared.df.columns)} columns. Review missing-data decisions or adjust your objectives in the Studio tab."
     prefix = "Auto-Expert summary across your key columns: " if is_auto else ""
-    snippets = [r.finding.headline.rstrip(".") for r in answered[:2]]
+    snippets, seen = [], set()
+    for r in answered:
+        s = r.finding.headline.rstrip(".")
+        if s not in seen:
+            seen.add(s)
+            snippets.append(s)
+        if len(snippets) >= 2:
+            break
     return prefix + ". ".join(snippets) + "."
 
 
@@ -611,44 +752,110 @@ def render_objective_dashboard_tab(
         st.info("No numeric measures detected to plot. Check column roles in the **🎯 Objectives & Data Studio** tab.")
         return
 
-    # 2-Column Linear Obsidian Chart Grid
+    # 2-Column Linear Obsidian Interactive Chart Grid (real Streamlit containers, no empty HTML wrapper divs)
+    sig_prefix = hashlib.md5(f"{len(hp.df)}_{currency}".encode()).hexdigest()[:6]
+    all_measures = list(hp.schema.measures)
+    grain_map = {"Monthly": "M", "Quarterly": "Q", "Weekly": "W", "Daily": "D"}
+
     for row_start in range(0, len(results), 2):
         row_items = results[row_start : row_start + 2]
         cols = st.columns(2)
         for col_idx, res in enumerate(row_items):
             f, sp = res.finding, res.spec
+            card_key = f"{sp.id}_{row_start}_{col_idx}_{sig_prefix}"
             with cols[col_idx]:
-                st.markdown('<div class="chart-box">', unsafe_allow_html=True)
-                conf_color = "#34D399" if f.confidence == "high" else ("#FBBF24" if f.confidence == "medium" else "#F87171")
-                st.markdown(
-                    f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
-                    f'<span style="font-size:14px;font-weight:700;color:#F8FAFC;">{_h(sp.text)}</span>'
-                    f'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(148,163,184,0.12);color:{conf_color};text-transform:uppercase;">{_h(f.confidence)} conf.</span>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-                if f.status in ("decision", "blocked", "error"):
-                    st.warning(f.headline)
-                else:
+                with st.container(border=True):
+                    if f.status in ("decision", "blocked", "error"):
+                        st.markdown(f"**{_h(sp.text)}**")
+                        st.warning(f.headline)
+                        continue
+
+                    base_type = (f.chart or {}).get("type", "")
+                    chosen_style = None
+                    chosen_top_n = None
+                    active_finding = f
+                    card_title = sp.text
+
+                    if base_type == "line" and hp.schema.date and sp.measure in hp.df.columns:
+                        c_h, c_gr, c_st = st.columns([1.8, 1.0, 1.2])
+                        c_h.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{_h(card_title)}</div>', unsafe_allow_html=True)
+                        sel_gr = c_gr.selectbox("Granularity", ["Auto", "Monthly", "Quarterly", "Weekly", "Daily"], key=f"obj_gr_{card_key}", label_visibility="collapsed")
+                        chosen_style = c_st.selectbox("Style", ["Line & Area", "Grouped Bars", "Growth %"], key=f"obj_st_{card_key}", label_visibility="collapsed")
+                        if sel_gr != "Auto":
+                            try:
+                                tbl, _ = an.period_table(hp.df, hp.schema.date, sp.measure, sp.agg, grain=grain_map[sel_gr])
+                                used = tbl[tbl["n"] > 0].copy()
+                                if not used.empty:
+                                    y_lbl = f"{sp.agg.title()} {sp.measure}"
+                                    active_finding = an.Finding(
+                                        objective_id=f.objective_id, kind=f.kind, question=f.question,
+                                        status=f.status, headline=f.headline, details=f.details,
+                                        table=used.rename(columns={"label": "Period", "value": y_lbl}),
+                                        chart={"type": "line", "x": "Period", "y": y_lbl},
+                                        caveats=f.caveats, assumptions=f.assumptions,
+                                        coverage_pct=f.coverage_pct, n_rows=f.n_rows, confidence=f.confidence,
+                                    )
+                            except Exception:
+                                pass
+
+                    elif base_type == "bar" and sp.dimension and len(all_measures) >= 1:
+                        c_h, c_m, c_st, c_n = st.columns([1.6, 1.15, 1.15, 0.7])
+                        m_idx = all_measures.index(sp.measure) if sp.measure in all_measures else 0
+                        sel_m = c_m.selectbox("Metric", all_measures, index=m_idx, key=f"obj_met_{card_key}", label_visibility="collapsed")
+                        default_styles = ["Donut", "Vertical Bar", "Horizontal Bar", "Pie"] if sp.kind == "composition" else (["Horizontal Bar", "Vertical Bar", "Donut", "Pie"] if (f.table is not None and len(f.table) > 6) else ["Vertical Bar", "Horizontal Bar", "Donut", "Pie"])
+                        chosen_style = c_st.selectbox("Style", default_styles, key=f"obj_st_{card_key}", label_visibility="collapsed")
+                        sel_top = c_n.selectbox("Top", [5, 10, "All"], index=1, key=f"obj_top_{card_key}", label_visibility="collapsed")
+                        chosen_top_n = None if sel_top == "All" else int(sel_top)
+
+                        if sel_m != sp.measure:
+                            try:
+                                new_agg = an.default_agg(sel_m)
+                                new_sp = ob.ObjectiveSpec(
+                                    id=sp.id, text=f"{sel_m} by {sp.dimension}",
+                                    kind=sp.kind if sp.kind in ("compare", "composition") else "compare",
+                                    measure=sel_m, dimension=sp.dimension, agg=new_agg, top_n=12,
+                                )
+                                active_finding = ob.ANALYSES[new_sp.kind](hp.df, hp.schema, new_sp, currency)
+                                card_title = new_sp.text
+                            except Exception:
+                                pass
+                        c_h.markdown(f'<div style="font-size:14px;font-weight:700;color:#F8FAFC;padding:6px 0;">{_h(card_title)}</div>', unsafe_allow_html=True)
+
+                    else:
+                        conf_color = "#34D399" if f.confidence == "high" else ("#FBBF24" if f.confidence == "medium" else "#F87171")
+                        st.markdown(
+                            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+                            f'<span style="font-size:14px;font-weight:700;color:#F8FAFC;">{_h(card_title)}</span>'
+                            f'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(148,163,184,0.12);color:{conf_color};text-transform:uppercase;">{_h(active_finding.confidence)} conf.</span>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+
                     st.markdown(
-                        f'<div style="font-size:12.5px;color:#CBD5E1;margin-bottom:10px;line-height:1.45;">{_h(f.headline)}</div>',
+                        f'<div style="font-size:12.5px;color:#CBD5E1;margin-bottom:8px;line-height:1.45;">{_h(active_finding.headline)}</div>',
                         unsafe_allow_html=True,
                     )
-                    fig = figure_for(f, dark=True, brand_color=brand_color)
+                    fig = figure_for(
+                        active_finding,
+                        dark=True,
+                        brand_color=brand_color,
+                        chart_style=chosen_style,
+                        currency=currency,
+                        top_n=chosen_top_n,
+                    )
                     if fig is not None:
-                        st.plotly_chart(fig, use_container_width=True, key=f"oq_dash_fig_{sp.id}_{row_start}_{col_idx}")
-                    elif f.details:
-                        for d in f.details[:4]:
+                        st.plotly_chart(fig, use_container_width=True, key=f"oq_dash_fig_{card_key}")
+                    elif active_finding.details:
+                        for d in active_finding.details[:4]:
                             st.write("• " + d)
-                    st.caption(f"{f.n_rows:,} rows used · {f.coverage_pct:.0f}% coverage")
+                    st.caption(f"{active_finding.n_rows:,} rows used · {active_finding.coverage_pct:.0f}% coverage · {active_finding.confidence} confidence")
                     with st.expander("Details, caveats & data"):
-                        for d in f.details:
+                        for d in active_finding.details:
                             st.write("• " + d)
-                        for c in f.caveats:
+                        for c in active_finding.caveats:
                             st.warning(c)
-                        if f.table is not None and len(f.table):
-                            st.dataframe(f.table.head(100), use_container_width=True, hide_index=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                        if active_finding.table is not None and len(active_finding.table):
+                            st.dataframe(active_finding.table.head(100), use_container_width=True, hide_index=True)
 
     takeaways = build_objective_takeaways(results)
     if takeaways:

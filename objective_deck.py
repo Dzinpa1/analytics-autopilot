@@ -44,8 +44,8 @@ def _kpi_slide(prs, kpis, title, accent):
             _add_textbox(slide, pill, x + 0.18, y + card_h - 0.55, card_w - 0.36, 0.4, size=10, color=C_GRAY, italic=True)
 
 
-def _chart_png(finding, tmpdir, idx, brand_color=None):
-    fig = objective_charts.figure_for(finding, dark=False, brand_color=brand_color)
+def _chart_png(finding, tmpdir, idx, brand_color=None, currency=""):
+    fig = objective_charts.figure_for(finding, dark=False, brand_color=brand_color, currency=currency)
     if fig is None:
         return None
     path = os.path.join(tmpdir, f"obj_{idx}.png")
@@ -78,7 +78,7 @@ def _bullets(slide, items, l, t, w, h, size=12, color=C_DARK):
         p.space_after = Pt(4)
 
 
-def _answer_slide(prs, result, idx, accent, tmpdir, brand_color=None):
+def _answer_slide(prs, result, idx, accent, tmpdir, brand_color=None, currency=""):
     f = result.finding
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_rect(slide, 0, 0, 13.33, 1.2, accent)
@@ -87,7 +87,7 @@ def _answer_slide(prs, result, idx, accent, tmpdir, brand_color=None):
     _add_textbox(slide, _short(result.spec.text, 120), 0.5, 0.38, 12.3, 0.7, size=20, bold=True, color=tc)
     _add_textbox(slide, _short(f.headline, 260), 0.5, 1.4, 12.3, 1.0, size=16, bold=True, color=C_DARK)
 
-    png = _chart_png(f, tmpdir, idx, brand_color=brand_color) if f.status in ("ok", "caution") else None
+    png = _chart_png(f, tmpdir, idx, brand_color=brand_color, currency=currency) if f.status in ("ok", "caution") else None
     if png:
         slide.shapes.add_picture(png, Inches(0.5), Inches(2.5), width=Inches(7.4))
         side_l, side_w = 8.2, 4.7
@@ -125,7 +125,7 @@ def _notes_slide(prs, results, quality_notes, accent):
 
 
 def build_objective_deck(results, title="Analysis Report", quality_notes=None, brand_color=None,
-                         brand_name=None, logo_path=None, output_dir=None, kpis=None) -> str:
+                         brand_name=None, logo_path=None, output_dir=None, kpis=None, currency="") -> str:
     """results: list of ObjectiveResult. Returns the saved .pptx path."""
     accent = hex_to_rgb(brand_color) if brand_color else C_BLUE
     prs = Presentation()
@@ -137,7 +137,7 @@ def build_objective_deck(results, title="Analysis Report", quality_notes=None, b
         _kpi_slide(prs, kpis, title, accent)
     with tempfile.TemporaryDirectory() as tmp:
         for i, r in enumerate(results, 1):
-            _answer_slide(prs, r, i, accent, tmp, brand_color=brand_color)
+            _answer_slide(prs, r, i, accent, tmp, brand_color=brand_color, currency=currency)
         _notes_slide(prs, results, list(quality_notes or []), accent)
         out_dir = output_dir or tempfile.mkdtemp(prefix="deck_")
         os.makedirs(out_dir, exist_ok=True)
