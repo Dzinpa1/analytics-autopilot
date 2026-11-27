@@ -158,31 +158,32 @@ def _plan(prep, q):
 
 def _adjust_widget(prep, spec, qid):
     s = prep.schema
+    sg = st.session_state.get("oq_sig", "")
     with st.expander("How I understood this (change it if wrong)"):
         kinds = list(KIND_LABEL)
         k = st.selectbox("Type of analysis", kinds, index=kinds.index(spec.kind) if spec.kind in kinds else 0,
-                         format_func=KIND_LABEL.get, key=f"oq_k_{qid}")
+                         format_func=KIND_LABEL.get, key=f"oq_k_{qid}_{sg}")
         meas = list(s.measures)
-        m = st.selectbox("Main number", meas, index=meas.index(spec.measure) if spec.measure in meas else 0, key=f"oq_m_{qid}") if meas else None
+        m = st.selectbox("Main number", meas, index=meas.index(spec.measure) if spec.measure in meas else 0, key=f"oq_m_{qid}_{sg}") if meas else None
         m2 = None
         if k in ("target", "relationship") and len(meas) > 1:
             m2 = st.selectbox("Second number (budget / other number)", meas,
-                              index=meas.index(spec.measure2) if spec.measure2 in meas else min(1, len(meas) - 1), key=f"oq_m2_{qid}")
+                              index=meas.index(spec.measure2) if spec.measure2 in meas else min(1, len(meas) - 1), key=f"oq_m2_{qid}_{sg}")
         dim = None
         if s.dimensions:
             dims = list(s.dimensions)
-            dim = st.selectbox("Group by", dims, index=dims.index(spec.dimension) if spec.dimension in dims else 0, key=f"oq_d_{qid}")
+            dim = st.selectbox("Group by", dims, index=dims.index(spec.dimension) if spec.dimension in dims else 0, key=f"oq_d_{qid}_{sg}")
         aggs = list(AGG_LABEL)
         a = st.selectbox("How to combine values", aggs, index=aggs.index(spec.agg) if spec.agg in aggs else 0,
-                         format_func=AGG_LABEL.get, key=f"oq_a_{qid}")
+                         format_func=AGG_LABEL.get, key=f"oq_a_{qid}_{sg}")
         new = {"kind": k, "measure": m, "measure2": m2, "dimension": dim, "agg": a}
         cur = {"kind": spec.kind, "measure": spec.measure, "measure2": spec.measure2, "dimension": spec.dimension, "agg": spec.agg}
         changed = {x: v for x, v in new.items() if v is not None and v != cur.get(x)}
-        if changed and st.button("Apply my changes", key=f"oq_apply_{qid}"):
+        if changed and st.button("Apply my changes", key=f"oq_apply_{qid}_{sg}"):
             st.session_state["oq_over"].setdefault(qid, {}).update(changed)
             st.session_state.pop("oq_deck", None)
             st.rerun()
-        if qid in st.session_state["oq_over"] and st.button("Go back to my original wording", key=f"oq_undo_{qid}"):
+        if qid in st.session_state["oq_over"] and st.button("Go back to my original wording", key=f"oq_undo_{qid}_{sg}"):
             st.session_state["oq_over"].pop(qid, None)
             st.session_state.pop("oq_deck", None)
             st.rerun()
